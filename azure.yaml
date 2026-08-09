@@ -1,0 +1,14 @@
+name: home-assistant
+metadata:
+  template: home-assistant@1.0.0
+infra:
+  provider: bicep
+  path: infra
+services:
+  azure-backend:
+    project: ./azure-backend
+    language: py
+    host: function
+    remoteBuild: true
+    resourceName: ${AZURE_BACKEND_NAME}
+    resourceGroup: ${AZURE_RESOURCE_GROUP}

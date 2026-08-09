@@ -1,0 +1,11 @@
+# Development-only dependencies: testing, packaging, and linting tools.
+# These are never installed on a Raspberry Pi device.
+-r requirements-runtime.txt
+pytest>=7.4
+pytest-cov>=4.1
+build>=1.0
+ruff>=0.4
+# Validates wheel/sdist metadata (long_description rendering, required
+# fields) before a release is published. Used by
+# .github/workflows/pi-client-ci.yml's `python -m twine check` step.
+twine>=5.0

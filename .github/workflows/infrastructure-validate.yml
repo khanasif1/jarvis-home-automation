@@ -1,0 +1,113 @@
+name: Infrastructure validation
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - "azure.yaml"
+      - ".github/workflows/infrastructure-validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "azure.yaml"
+      - ".github/workflows/infrastructure-validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Bicep CLI is available
+        run: az bicep install
+      - name: Build Bicep
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .test-artifacts/bicep
+          az bicep build \
+            --file infra/main.bicep \
+            --outfile .test-artifacts/bicep/main.json
+          az bicep lint --file infra/main.bicep
+      - name: Ensure runtime code is absent from infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find infra -type f \( -name 'function_app.py' -o -name 'pyproject.toml' \) | grep -q .; then
+            echo "Runtime application source found under infra/" >&2
+            exit 1
+          fi
+      - name: Validate Bash provisioning script
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .test-artifacts/script-smoke
+          bash -n infra/scripts/deploy.sh
+          bash -n infra/scripts/provision-device.sh
+          uuidgen() { printf '%s\n' '8a32e253-ec08-4720-95d2-bd6aafbe8d2f'; }
+          az() { printf '%s\n' "$@" > .test-artifacts/script-smoke/bash-az-args.txt; }
+          export -f uuidgen az
+          infra/scripts/provision-device.sh \
+            --device-name kitchen-pi \
+            --storage-account stsmoketest \
+            --output-file .test-artifacts/script-smoke/bash-config.env \
+            >/dev/null
+          grep -Eq '^HAP_DEVICE_ID=[0-9a-f-]{36}$' .test-artifacts/script-smoke/bash-config.env
+          grep -Eq '^HAP_DEVICE_TOKEN=[A-Za-z0-9_-]{40,}$' .test-artifacts/script-smoke/bash-config.env
+          grep -Fxq 'PartitionKey=device' .test-artifacts/script-smoke/bash-az-args.txt
+          grep -Fxq 'DeviceName=kitchen-pi' .test-artifacts/script-smoke/bash-az-args.txt
+          rm -f .test-artifacts/script-smoke/bash-config.env .test-artifacts/script-smoke/bash-az-args.txt
+      - name: Validate PowerShell provisioning script
+        shell: pwsh
+        run: |
+          $errors = @()
+          foreach ($file in @('infra/scripts/deploy.ps1', 'infra/scripts/provision-device.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            $errors += $parseErrors
+          }
+          if ($errors.Count) {
+            $errors | Format-List
+            exit 1
+          }
+
+          $global:CapturedAzArgs = $null
+          function global:az {
+            $global:CapturedAzArgs = @($args)
+            $global:LASTEXITCODE = 0
+          }
+          $output = '.test-artifacts/script-smoke/powershell-config.env'
+          try {
+            & ./infra/scripts/provision-device.ps1 `
+              -DeviceName kitchen-pi `
+              -StorageAccountName stsmoketest `
+              -OutputFile $output *> $null
+            $values = @{}
+            foreach ($line in Get-Content $output) {
+              if ($line -match '^[^#][^=]*=') {
+                $parts = $line -split '=', 2
+                $values[$parts[0]] = $parts[1]
+              }
+            }
+            if (
+              $values.Keys.Count -ne 2 -or
+              $values['HAP_DEVICE_ID'] -notmatch '^[0-9a-f-]{36}$' -or
+              $values['HAP_DEVICE_TOKEN'] -notmatch '^[A-Za-z0-9_-]{40,}$' -or
+              $CapturedAzArgs -notcontains 'PartitionKey=device' -or
+              $CapturedAzArgs -notcontains 'DeviceName=kitchen-pi'
+            ) {
+              throw 'PowerShell provisioning output does not match the Pi/backend contract.'
+            }
+          }
+          finally {
+            Remove-Item Function:\az -ErrorAction SilentlyContinue
+            Remove-Item $output -Force -ErrorAction SilentlyContinue
+          }

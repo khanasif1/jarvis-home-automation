@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "adminApiKey": {
+      "value": "${ADMIN_API_KEY}"
+    },
+    "functionAppPlanSku": {
+      "value": "FC1"
+    },
+    "functionMaximumInstanceCount": {
+      "value": 20
+    },
+    "functionInstanceMemoryMB": {
+      "value": 2048
+    },
+    "pythonVersion": {
+      "value": "3.11"
+    },
+    "speechSku": {
+      "value": "S0"
+    },
+    "openAiDeploymentName": {
+      "value": "gpt-4.1-mini"
+    },
+    "openAiModelName": {
+      "value": "gpt-4.1-mini"
+    },
+    "openAiModelVersion": {
+      "value": "2025-04-14"
+    },
+    "openAiApiVersion": {
+      "value": "2024-10-21"
+    },
+    "openAiDeploymentCapacity": {
+      "value": 10
+    },
+    "enableKeyVaultPurgeProtection": {
+      "value": true
+    },
+    "logRetentionInDays": {
+      "value": 30
+    }
+  }
+}

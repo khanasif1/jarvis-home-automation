@@ -1,0 +1,39 @@
+# Local configuration and secrets
+.env
+*.env
+!.env.example
+local.settings.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+
+# All disposable local test and build output
+.test-artifacts/
+
+# Runtime audio and state
+*.wav
+!pi-client/src/home_assistant_pi/assets/*.wav
+*.sqlite3
+*.db
+
+# Azure Developer CLI
+.azure/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

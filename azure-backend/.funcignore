@@ -1,0 +1,12 @@
+.venv/
+venv/
+tests/
+requirements-dev.txt
+pytest.ini
+local.settings.json
+local.settings.example.json
+.pytest_cache/
+__pycache__/
+*.pyc
+.git*
+README.md

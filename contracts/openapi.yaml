@@ -1,0 +1,167 @@
+openapi: 3.1.0
+info:
+  title: Home Assistant Device API
+  version: 1.0.0
+  description: Contract shared by the Raspberry Pi client and Azure Functions backend.
+servers:
+  - url: https://{functionAppHost}/api
+    variables:
+      functionAppHost:
+        default: example.azurewebsites.net
+security:
+  - deviceToken: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Backend health status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /voice-turn:
+    post:
+      operationId: createVoiceTurn
+      summary: Process one text or audio assistant turn.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./schemas/voice-turn-request.json
+      responses:
+        "200":
+          description: Completed assistant turn.
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/voice-turn-response.json
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /reminders/due:
+    get:
+      operationId: listDueReminders
+      summary: List reminders that are due and not yet delivered to a device.
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+      responses:
+        "200":
+          description: Due reminders ordered by due time.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [reminders]
+                properties:
+                  reminders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DueReminder"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /reminders/{reminderId}/ack:
+    post:
+      operationId: acknowledgeReminder
+      summary: Mark a reminder delivered after the Pi has announced it.
+      parameters:
+        - name: reminderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deviceId]
+              properties:
+                deviceId:
+                  type: string
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+      responses:
+        "200":
+          description: Reminder delivery state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [reminderId, delivered]
+                properties:
+                  reminderId:
+                    type: string
+                    format: uuid
+                  delivered:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    deviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-device-token
+  responses:
+    Error:
+      description: Request could not be completed.
+      content:
+        application/json:
+          schema:
+            $ref: ./schemas/error-response.json
+  schemas:
+    DueReminder:
+      type: object
+      additionalProperties: false
+      required: [reminderId, title, dueAt]
+      properties:
+        reminderId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        dueAt:
+          type: string
+          format: date-time
