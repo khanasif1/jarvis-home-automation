@@ -4,18 +4,20 @@ Voice-first home automation with a lightweight Raspberry Pi client, an
 independently deployed Azure Functions backend, and independently provisioned
 Azure infrastructure.
 
-## Component boundaries
+## Repository layout
 
 | Component | Purpose | Deploys to |
 | --- | --- | --- |
-| [`pi-client/`](pi-client/) | Wake word, audio capture/playback, API client, reminders, and device diagnostics | Raspberry Pi |
-| [`azure-backend/`](azure-backend/) | Authenticated voice-turn API, speech/AI orchestration, tools, and integrations | Azure Functions |
-| [`infra/`](infra/) | Bicep modules, role assignments, provisioning, and device bootstrap | Azure |
-| [`contracts/`](contracts/) | Versioned OpenAPI and JSON Schema definitions used by both runtime components | Build-time input |
+| [`_src/pi-client/`](_src/pi-client/) | Wake word, audio capture/playback, API client, reminders, and device diagnostics | Raspberry Pi |
+| [`_src/azure-backend/`](_src/azure-backend/) | Authenticated voice-turn API, speech/AI orchestration, tools, and integrations | Azure Functions |
+| [`_src/infra/`](_src/infra/) | Bicep modules, role assignments, provisioning, and device bootstrap | Azure |
+| [`_src/contracts/`](_src/contracts/) | Versioned OpenAPI and JSON Schema definitions used by both runtime components | Build-time input |
+| [`Prompt/`](Prompt/) | Original solution requirements | Documentation only |
 
-The Pi package never imports backend source. The backend can be built and
-deployed without downloading or building the Pi client, and infrastructure
-validation does not build either runtime.
+All executable solution content and local build output live under `_src/`.
+`README.md` and the original `Prompt/` remain at the repository root. GitHub
+Actions are intentionally not included; validation, provisioning, deployment,
+and release publication are manual.
 
 ## Raspberry Pi installation (no Git required)
 
@@ -55,11 +57,13 @@ gh release download pi-v1.0.0 \
 Inspect the downloaded installer before running it. Never use
 `curl URL | sudo bash`.
 
-## Independent developer operations
+## Manual developer and deployment operations
 
 Python 3.11 or newer is recommended for development.
 
 ```bash
+cd _src
+
 # Keep imported bytecode with the other disposable validation output.
 export PYTHONPYCACHEPREFIX="$PWD/.test-artifacts/pycache"
 
@@ -76,7 +80,7 @@ pytest pi-client/tests --basetemp=.test-artifacts/pytest/pi-client
 # Run the backend locally
 (cd azure-backend && func start)
 
-# Test only the backend (from the repository root)
+# Test only the backend
 pytest azure-backend/tests --basetemp=.test-artifacts/pytest/backend
 
 # Validate only infrastructure
@@ -91,30 +95,28 @@ azd provision
 # Deploy only the backend
 azd deploy azure-backend
 
-# Create a Pi release
-git tag pi-v1.0.0
-git push origin pi-v1.0.0
+# Build and publish a Pi release manually
+pi-client/packaging/build-release.sh --version 1.0.0
+gh release create pi-v1.0.0 .test-artifacts/pi-client-release/dist/* \
+  --target main \
+  --title "Home Assistant Pi 1.0.0" \
+  --generate-notes
 ```
 
 Local test output, coverage data, temporary recordings, build products, and
-validation output must be written under `.test-artifacts/`. It is ignored by
-Git and can be deleted as one folder before production rollout. Test source
+validation output must be written under `_src/.test-artifacts/`. It is ignored
+by Git and can be deleted as one folder after production rollout. Test source
 remains next to each independently buildable component.
 
-The production backend workflow uses GitHub OIDC rather than a client secret.
-Configure the protected `production` environment with the `AZURE_CLIENT_ID`,
-`AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` secrets plus the
-`AZURE_ENV_NAME`, `AZURE_LOCATION`, `AZURE_BACKEND_NAME`, and
-`AZURE_RESOURCE_GROUP` variables. The last two values are emitted by the
-infrastructure deployment.
+From the repository root:
 
 ```bash
-rm -rf .test-artifacts
+rm -rf _src/.test-artifacts
 ```
 
 ```powershell
-Remove-Item -Recurse -Force .test-artifacts
+Remove-Item -Recurse -Force _src\.test-artifacts
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design and the
-component READMEs for setup and operational commands.
+See [`_src/docs/architecture.md`](_src/docs/architecture.md) for the full
+design and the component READMEs for setup and operational commands.
