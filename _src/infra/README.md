@@ -25,8 +25,11 @@ infra/
     function-app.bicep          Linux Python Function App + hosting plan, system-assigned identity
     role-assignments.bicep      RBAC grants from the Function App identity to Key Vault/Storage/Speech/OpenAI
   scripts/
-    deploy.ps1 / deploy.sh      Subscription-scope deployment wrappers around `az deployment sub`
+    backend_lifecycle.py        Idempotent create/deploy/delete command for the complete backend
+    deploy.ps1 / deploy.sh      Advanced infrastructure-only wrappers around `az deployment sub`
     provision-device.ps1/.sh    Generates a Pi device ID + token, stores only a token hash
+  tests/
+    test_backend_lifecycle.py   Lifecycle idempotency tests with fake Azure commands
 ```
 
 ## Architecture summary
@@ -74,7 +77,8 @@ key ever appears as a plain deployment output.
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) 2.60+
 - Azure CLI Bicep tooling: `az bicep install` (or `az bicep upgrade`)
 - An Azure subscription and `az login` / `az account set --subscription <id>`
-- Optional: [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) if deploying via `azd provision`
+- Python 3.11+
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
 Create a high-entropy backend administrator key before validating a live
 deployment or provisioning resources. It is passed as a secure Bicep parameter,
@@ -137,7 +141,46 @@ infra/scripts/deploy.sh --environment-name jarvis-a1b2 --location eastus2 --vali
 infra/scripts/deploy.sh --environment-name jarvis-a1b2 --location eastus2 --what-if
 ```
 
-## Deploy
+## Install or update the complete backend
+
+The recommended lifecycle command creates or updates every Azure service,
+deploys the Function code, and verifies the health endpoint. It creates the
+local azd environment and administrator key on first use, then reuses both on
+later runs:
+
+```bash
+az login
+azd auth login
+python3 infra/scripts/backend_lifecycle.py install \
+  --environment-name home \
+  --location australiaeast
+```
+
+```powershell
+az login
+azd auth login
+python infra\scripts\backend_lifecycle.py install `
+  --environment-name home `
+  --location australiaeast
+```
+
+To delete the resource group and every contained service:
+
+```bash
+python3 infra/scripts/backend_lifecycle.py uninstall \
+  --environment-name home \
+  --yes
+```
+
+Both operations are idempotent. Install reconciles the same Bicep deployment
+and redeploys the same backend; uninstall returns success when the resource
+group is already absent. Managed environments are removed with
+`azd down --purge`, including soft-deleted Key Vault and Cognitive Services
+resources where Azure permits purge. The resource-name seed rotates after
+uninstall, so purge-protected retention cannot block reinstalling the same
+environment.
+
+## Advanced infrastructure-only deployment
 
 ### Option A — `az deployment sub create`
 
@@ -157,7 +200,8 @@ az deployment sub create \
   --location eastus2 \
   --template-file infra/main.bicep \
   --parameters infra/main.parameters.json \
-  --parameters environmentName=jarvis-a1b2 location=eastus2 adminApiKey="$ADMIN_API_KEY"
+  --parameters environmentName=jarvis-a1b2 resourceNameSeed=jarvis-a1b2 \
+    location=eastus2 adminApiKey="$ADMIN_API_KEY"
 ```
 
 ### Option B — `azd provision`
@@ -166,12 +210,14 @@ az deployment sub create \
 source root:
 
 ```bash
+azd env set RESOURCE_NAME_SEED jarvis-a1b2
 azd provision
 ```
 
 Set `ADMIN_API_KEY` in the current environment first. `azd` resolves it, along
-with `AZURE_ENV_NAME` and `AZURE_LOCATION`, through `main.parameters.json`,
-then runs the equivalent of `az deployment sub create` against this template.
+with `AZURE_ENV_NAME`, `AZURE_LOCATION`, and `RESOURCE_NAME_SEED`, through
+`main.parameters.json`, then runs the equivalent of
+`az deployment sub create` against this template.
 
 Deploying infrastructure never builds or requires `pi-client` or
 `azure-backend` source; deploying backend **code** afterwards is a separate,
@@ -186,6 +232,7 @@ azd deploy azure-backend
 | Parameter | Default | Description |
 |---|---|---|
 | `environmentName` | *(required)* | Unique short environment name (for example `jarvis-a1b2`); used to derive all resource names. |
+| `resourceNameSeed` | `environmentName` | Stable input for globally unique resource names. Lifecycle tooling persists it across updates and rotates it after uninstall. |
 | `location` | *(required)* | Azure region for every resource. |
 | `resourceGroupName` | `rg-<environmentName>-jarvis` | Override the generated resource group name. |
 | `tags` | see `main.bicep` | Tags applied to every resource. |
@@ -199,7 +246,7 @@ azd deploy azure-backend
 | `openAiModelVersion` | `2025-04-14` | Azure OpenAI model version. |
 | `openAiApiVersion` | `2024-10-21` | Stable Azure OpenAI API version used by the backend SDK. |
 | `openAiDeploymentCapacity` | `10` | Deployment capacity in units of 1,000 TPM. |
-| `enableKeyVaultPurgeProtection` | `true` | Disable only for short-lived dev/test environments that need to be deleted immediately. |
+| `enableKeyVaultPurgeProtection` | `true` | Protects deleted vaults from purge; lifecycle seed rotation still permits immediate reinstall. |
 | `logRetentionInDays` | `30` | Log Analytics workspace retention. |
 | `adminApiKey` | *(required, secure)* | High-entropy key for administrative routes and OAuth state signing; stored in Key Vault. |
 | `googleOAuthClientId` | blank | Optional Google web OAuth client ID. |

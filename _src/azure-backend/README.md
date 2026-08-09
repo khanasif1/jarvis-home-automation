@@ -216,8 +216,9 @@ call.
 
 ## Deployment package contents
 
-Running `azd deploy azure-backend` manually from `_src/` packages this
-directory as-is except for the paths listed in `.funcignore`
+Running `infra/scripts/backend_lifecycle.py install` from `_src/` invokes
+`azd up`, which provisions the services and packages this directory as-is
+except for the paths listed in `.funcignore`
 (`tests/`, `requirements-dev.txt`, `pytest.ini`, `local.settings*.json`,
 caches, and this README). What ships is exactly:
 

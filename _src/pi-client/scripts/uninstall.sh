@@ -71,11 +71,18 @@ if [[ "${PURGE}" == "true" ]]; then
     info "Removed configuration directory ${CONFIG_DIR} (--purge)"
   fi
   if id -u "${SERVICE_USER}" >/dev/null 2>&1; then
-    userdel "${SERVICE_USER}" 2>/dev/null || info "WARNING: failed to remove user ${SERVICE_USER}"
-    info "Removed system user ${SERVICE_USER} (--purge)"
+    if userdel "${SERVICE_USER}"; then
+      info "Removed system user ${SERVICE_USER} (--purge)"
+    else
+      err "Failed to remove system user ${SERVICE_USER}"
+    fi
   fi
   if getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
-    groupdel "${SERVICE_GROUP}" 2>/dev/null || info "WARNING: failed to remove group ${SERVICE_GROUP} (still in use?)"
+    if groupdel "${SERVICE_GROUP}"; then
+      info "Removed system group ${SERVICE_GROUP} (--purge)"
+    else
+      err "Failed to remove system group ${SERVICE_GROUP}; it may still be in use"
+    fi
   fi
 else
   info "Configuration directory ${CONFIG_DIR} was preserved. Re-run with --purge to remove it."

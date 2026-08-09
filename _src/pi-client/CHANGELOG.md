@@ -5,7 +5,14 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and this project uses simple semantic-ish versioning for Pi releases
 (`pi-vMAJOR.MINOR.PATCH`). Release bundles are built and published manually.
 
-## [1.0.0] - Unreleased
+## [1.0.1] - 2026-08-09
+
+### Changed
+
+- Kept the release wheel in the extracted bundle after installation so
+  `install.sh` is truly idempotent and can repair the same version in place.
+
+## [1.0.0] - 2026-08-09
 
 ### Added
 

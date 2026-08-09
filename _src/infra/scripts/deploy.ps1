@@ -111,6 +111,7 @@ $commonArgs = @(
     '--template-file', $templateFile
     '--parameters', $ParametersFile
     '--parameters', "environmentName=$EnvironmentName"
+    '--parameters', "resourceNameSeed=$EnvironmentName"
     '--parameters', "location=$Location"
     '--parameters', "adminApiKey=$($env:ADMIN_API_KEY)"
 )

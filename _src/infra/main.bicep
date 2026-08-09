@@ -8,13 +8,18 @@
 // Deploy with either:
 //   az deployment sub create --location <region> --template-file main.bicep --parameters main.parameters.json
 // or:
-//   azd provision   (azd resolves this template via azure.yaml at the repo root)
+//   azd provision   (azd resolves this template via azure.yaml at the _src root)
 targetScope = 'subscription'
 
 @description('Unique short environment name (for example jarvis-a1b2). Used to derive resource names and as the azd environment name.')
 @minLength(1)
 @maxLength(16)
 param environmentName string
+
+@description('Stable seed used to derive globally unique resource names. Lifecycle tooling rotates it after uninstall so retained soft-deleted names do not block reinstall.')
+@minLength(1)
+@maxLength(64)
+param resourceNameSeed string = environmentName
 
 @description('Azure region for all resources.')
 param location string
@@ -102,9 +107,9 @@ param googleOAuthClientSecret string = ''
 @description('Optional Google OAuth callback URL, for example https://<function-app>.azurewebsites.net/api/google/oauth/callback.')
 param googleOAuthRedirectUri string = ''
 
-// Deterministic, globally-unique-safe suffix derived from subscription + environment,
-// used only for resource types that require globally unique names.
-var uniqueSuffix = uniqueString(subscription().id, environmentName, location)
+// Deterministic, globally-unique-safe suffix derived from the lifecycle seed.
+// The seed is stable across updates and rotated only after uninstall.
+var uniqueSuffix = uniqueString(subscription().id, resourceNameSeed, location)
 var baseName = 'jarvis-${environmentName}-${uniqueSuffix}'
 // Keep the complete unique suffix in globally unique names while respecting
 // the 24-character Storage account and Key Vault name limits.
@@ -127,7 +132,9 @@ var googleOAuthComplete = !googleOAuthEnabled
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
   location: location
-  tags: tags
+  tags: union(tags, {
+    jarvisResourceNameSeed: resourceNameSeed
+  })
 }
 
 module monitoring 'modules/monitoring.bicep' = {
@@ -314,3 +321,4 @@ output functionAppPrincipalId string = functionApp.outputs.functionAppPrincipalI
 // Conventional azd outputs persisted into the environment after provisioning.
 output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_BACKEND_NAME string = functionApp.outputs.functionAppName
+output RESOURCE_NAME_SEED string = resourceNameSeed

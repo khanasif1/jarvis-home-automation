@@ -129,6 +129,7 @@ COMMON_ARGS=(
     --template-file "$TEMPLATE_FILE"
     --parameters "$PARAMETERS_FILE"
     --parameters "environmentName=$ENVIRONMENT_NAME"
+    --parameters "resourceNameSeed=$ENVIRONMENT_NAME"
     --parameters "location=$LOCATION"
     --parameters "adminApiKey=$ADMIN_KEY_VALUE"
 )

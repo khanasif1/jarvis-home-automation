@@ -2,8 +2,8 @@
 # install.sh - Install the home-assistant-pi voice assistant client.
 #
 # Usage:
-#   sudo ./install.sh --version 1.0.0
-#   sudo ./install.sh --version 1.0.0 --wakeword-extra porcupine
+#   sudo ./install.sh --version 1.0.1
+#   sudo ./install.sh --version 1.0.1 --wakeword-extra porcupine
 #
 # This script must be run from within an extracted pi-client release
 # bundle (it expects a wheel file, the systemd unit, and a config example
@@ -15,10 +15,9 @@
 # the existing /etc/home-assistant-pi/config.env file.
 #
 # After a successful install, this script copies update.sh/uninstall.sh to
-# a stable location (/opt/home-assistant-pi/bin/) and deletes the now-
-# redundant downloaded wheel plus package caches, so the extracted bundle
-# directory this script was run from can be safely deleted afterward -
-# future updates/uninstalls do not depend on retaining it.
+# a stable location (/opt/home-assistant-pi/bin/) and cleans package caches.
+# The release bundle remains intact so this installer can be rerun safely;
+# operators may delete the whole bundle directory when they no longer need it.
 #
 # The base wheel intentionally ships without any production wake-word
 # engine dependency, to keep every install lightweight: only the
@@ -377,15 +376,12 @@ fi
 chown -R root:root "${INSTALL_BIN_DIR}"
 
 # ---------------------------------------------------------------------------
-# 17. Clean up temporary package caches AND the now-redundant downloaded
-# wheel (its contents are already installed into the venv above, and
-# update.sh/uninstall.sh have just been copied to a stable location), so
-# nothing about a successful install forces the operator to keep the
-# download/extraction directory around.
+# 17. Clean up temporary package caches. Keep the wheel in the extracted
+# release bundle so running this installer again with the same inputs remains
+# safe and produces the same installed state.
 # ---------------------------------------------------------------------------
 apt-get clean || true
 rm -rf /root/.cache/pip "${INSTALL_DIR}"/.cache 2>/dev/null || true
-rm -f "${WHEEL_FILE}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # 18. Print the exact commands needed to configure and start the service.
@@ -412,10 +408,9 @@ echo "  3. Check status:         sudo systemctl status ${APP_NAME}.service"
 echo "  4. Follow logs:          sudo journalctl -u ${APP_NAME}.service -f"
 echo "  5. Run diagnostics:      sudo -u ${SERVICE_USER} ${VENV_DIR}/bin/home-assistant-pi doctor"
 echo
-echo "update.sh/uninstall.sh have been copied to ${INSTALL_BIN_DIR}, and the"
-echo "downloaded wheel/package caches from this install have been removed, so"
-echo "this download/extraction directory is no longer needed. It is now safe"
-echo "to delete this entire folder in one step, e.g.:"
+echo "update.sh/uninstall.sh have been copied to ${INSTALL_BIN_DIR}, package"
+echo "caches were removed, and this release bundle remains rerunnable. When it"
+echo "is no longer needed, delete the entire download folder in one step:"
 echo "  cd .. && rm -rf $(basename "${SCRIPT_DIR}")"
 echo "Future updates/uninstalls can be run from the stable copies instead:"
 echo "  sudo ${INSTALL_BIN_DIR}/update.sh --version X.Y.Z"

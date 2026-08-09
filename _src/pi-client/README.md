@@ -81,18 +81,18 @@ release bundle containing only what the Pi needs, and write
 No workflow publishes releases. From `_src/`, build and publish explicitly:
 
 ```bash
-pi-client/packaging/build-release.sh --version 1.0.0
-gh release create pi-v1.0.0 .test-artifacts/pi-client-release/dist/* \
+pi-client/packaging/build-release.sh --version 1.0.1
+gh release create pi-v1.0.1 .test-artifacts/pi-client-release/dist/* \
   --target main \
-  --title "Home Assistant Pi 1.0.0" \
+  --title "Home Assistant Pi 1.0.1" \
   --generate-notes
 ```
 
 ## Raspberry Pi installation (no git, no full repository)
 
-The commands below install release `1.0.0` from this repository.
+The commands below install release `1.0.1` from this repository.
 For a fork or a different release, replace `khanasif1`,
-`jarvis-home-automation`, and `1.0.0` with the matching owner, repository, and
+`jarvis-home-automation`, and `1.0.1` with the matching owner, repository, and
 version.
 
 ```bash
@@ -101,16 +101,16 @@ cd ~/home-assistant-install
 
 curl --fail --location \
   -o home-assistant-pi-bundle.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.0/home-assistant-pi-bundle-1.0.0.tar.gz
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/home-assistant-pi-bundle-1.0.1.tar.gz
 
 curl --fail --location \
   -o SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.0/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
 
 tar -xzf home-assistant-pi-bundle.tar.gz
-sudo ./install.sh --version 1.0.0
+sudo ./install.sh --version 1.0.1
 ```
 
 Do **not** run installers with `curl ... | sudo bash`. Always download the
@@ -122,9 +122,9 @@ putting a token in a command line, file, image, installer, or service:
 
 ```bash
 gh auth login
-gh release download pi-v1.0.0 \
+gh release download pi-v1.0.1 \
   --repo khanasif1/jarvis-home-automation \
-  --pattern 'home-assistant-pi-bundle-1.0.0.tar.gz' \
+  --pattern 'home-assistant-pi-bundle-1.0.1.tar.gz' \
   --pattern 'SHA256SUMS'
 ```
 
@@ -147,7 +147,7 @@ image, command line, or the systemd unit file.
    dependencies only - never test/lint/build tooling). When
    `--wakeword-extra porcupine|openwakeword` is given, the matching optional
    dependency is installed in the same command (see "Wake-word engines"
-   below) before the downloaded wheel file is removed.
+   below).
 8. Installs the systemd unit and enables (but does not blindly start) the
    service.
 9. Creates `/etc/home-assistant-pi/config.env` (or preserves an existing
@@ -161,10 +161,9 @@ image, command line, or the systemd unit file.
     location at `/opt/home-assistant-pi/bin/` (`root:root`, `0755`), so
     future updates/uninstalls never depend on retaining this download
     directory.
-12. Deletes the now-redundant downloaded wheel file and cleans up pip/apt
-    caches after a successful install - see "Cleaning up after install"
-    below for the one-command way to remove the rest of the download
-    directory too.
+12. Cleans pip/apt caches while keeping the extracted release bundle intact,
+    so the exact same installer command can be rerun safely. See "Cleaning up
+    after install" below when the rerunnable bundle is no longer needed.
 
 Re-running `install.sh` is safe: it upgrades the wheel in place and never
 overwrites an existing configuration file.
@@ -174,8 +173,9 @@ overwrites an existing configuration file.
 Once `install.sh` completes successfully, everything it needs going forward
 lives under `/opt/home-assistant-pi` and `/etc/home-assistant-pi` - it has
 already copied `update.sh`/`uninstall.sh` to
-`/opt/home-assistant-pi/bin/` and deleted the downloaded wheel and package
-caches. The entire extracted bundle directory (`~/home-assistant-install` in
+`/opt/home-assistant-pi/bin/` and cleaned package caches. The wheel remains in
+the extracted bundle so installation is idempotent. The entire bundle
+directory (`~/home-assistant-install` in
 the example above, including the downloaded `.tar.gz`, `SHA256SUMS`,
 `install.sh`, and the now-copied `update.sh`/`uninstall.sh`) is safe to
 delete in one step:
@@ -336,13 +336,12 @@ Set `HAP_WAKEWORD_ENGINE` in `config.env` to one of:
 The base wheel is intentionally kept lightweight (no wake-word engine
 dependencies beyond the stdlib/`keyboard` path). For any real deployment,
 install one of the two production extras **at install time**, in the same
-`pip install --no-cache-dir` invocation that installs the base wheel, before
-the downloaded wheel file is cleaned up:
+`pip install --no-cache-dir` invocation that installs the base wheel:
 
 ```bash
-sudo ./install.sh --version 1.0.0 --wakeword-extra porcupine
+sudo ./install.sh --version 1.0.1 --wakeword-extra porcupine
 # or
-sudo ./install.sh --version 1.0.0 --wakeword-extra openwakeword
+sudo ./install.sh --version 1.0.1 --wakeword-extra openwakeword
 ```
 
 Then set the matching engine (and, for Porcupine, an access key) in

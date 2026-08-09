@@ -1,122 +1,141 @@
 # Home Assistant
 
-Voice-first home automation with a lightweight Raspberry Pi client, an
-independently deployed Azure Functions backend, and independently provisioned
-Azure infrastructure.
+The four lifecycle operations below are the supported deployment path. Each
+install or uninstall command is idempotent: rerunning it with the same
+arguments is safe. Application source is under `_src/`; run Azure commands
+from that directory.
 
-## Repository layout
+## 1. Install application on Pi
 
-| Component | Purpose | Deploys to |
-| --- | --- | --- |
-| [`_src/pi-client/`](_src/pi-client/) | Wake word, audio capture/playback, API client, reminders, and device diagnostics | Raspberry Pi |
-| [`_src/azure-backend/`](_src/azure-backend/) | Authenticated voice-turn API, speech/AI orchestration, tools, and integrations | Azure Functions |
-| [`_src/infra/`](_src/infra/) | Bicep modules, role assignments, provisioning, and device bootstrap | Azure |
-| [`_src/contracts/`](_src/contracts/) | Versioned OpenAPI and JSON Schema definitions used by both runtime components | Build-time input |
-| [`Prompt/`](Prompt/) | Original solution requirements | Documentation only |
-
-All executable solution content and local build output live under `_src/`.
-`README.md` and the original `Prompt/` remain at the repository root. GitHub
-Actions are intentionally not included; validation, provisioning, deployment,
-and release publication are manual.
-
-## Raspberry Pi installation (no Git required)
-
-These commands install release `1.0.0` directly from GitHub Releases:
-For a fork or a different release, replace `khanasif1`,
-`jarvis-home-automation`, and `1.0.0` with the matching owner, repository, and
-version.
+On Raspberry Pi OS, run the complete block below. It downloads the release
+artifacts, verifies the checksum, and installs a production wake-word engine.
+Rerunning the whole block upgrades or repairs the same installation without
+replacing an existing configuration.
 
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
+rm -f home-assistant-pi-bundle-1.0.1.tar.gz SHA256SUMS
 
-curl --fail --location \
-  --output home-assistant-pi-bundle-1.0.0.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.0/home-assistant-pi-bundle-1.0.0.tar.gz
-curl --fail --location \
-  --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.0/SHA256SUMS
+curl -fL -o home-assistant-pi-bundle-1.0.1.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/home-assistant-pi-bundle-1.0.1.tar.gz
+curl -fL -o SHA256SUMS \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-1.0.0.tar.gz
-sudo ./install.sh --version 1.0.0
+tar -xzf home-assistant-pi-bundle-1.0.1.tar.gz
+sudo ./install.sh --version 1.0.1 --wakeword-extra openwakeword
 ```
 
-For a private repository, authenticate the GitHub CLI on the Pi and download
-the release without putting credentials in a command, file, image, installer,
-or service:
+The installer creates `/etc/home-assistant-pi/config.env` and waits to start
+the service until the required values are present. After section 3 prints the
+Azure API URL and device-provisioning command, set these values:
 
 ```bash
-gh auth login
-gh release download pi-v1.0.0 \
-  --repo khanasif1/jarvis-home-automation \
-  --pattern 'home-assistant-pi-bundle-1.0.0.tar.gz' \
-  --pattern 'SHA256SUMS'
+sudo nano /etc/home-assistant-pi/config.env
 ```
 
-Inspect the downloaded installer before running it. Never use
-`curl URL | sudo bash`.
+```dotenv
+HAP_DEVICE_ID=<provisioned-device-id>
+HAP_DEVICE_TOKEN=<provisioned-device-token>
+HAP_API_BASE_URL=https://<function-app>.azurewebsites.net/api
+HAP_WAKEWORD_ENGINE=openwakeword
+```
 
-## Manual developer and deployment operations
+Then start and verify the service:
 
-Python 3.11 or newer is recommended for development.
+```bash
+sudo systemctl restart home-assistant-pi.service
+sudo systemctl status home-assistant-pi.service --no-pager
+```
+
+## 2. Uninstall application on Pi
+
+The retained release bundle provides a rerunnable uninstaller. `--purge`
+removes the service, application, configuration, and dedicated system
+user/group. Running it again when those resources are absent is a no-op.
+
+```bash
+cd ~/home-assistant-install
+sudo ./uninstall.sh --purge
+```
+
+Without `--purge`, `/etc/home-assistant-pi/config.env` is preserved for a
+future reinstall.
+
+## 3. Install backend in Azure
+
+Prerequisites:
+
+- Python 3.11+
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- An Azure subscription with permission to create resources and role assignments
+
+Clone this repository, enter `_src/`, authenticate once, and run one lifecycle
+command:
 
 ```bash
 cd _src
-
-# Keep imported bytecode with the other disposable validation output.
-export PYTHONPYCACHEPREFIX="$PWD/.test-artifacts/pycache"
-
-# Build only the Pi client
-mkdir -p .test-artifacts/pi-build/source
-cp pi-client/pyproject.toml pi-client/README.md .test-artifacts/pi-build/source/
-cp -a pi-client/src .test-artifacts/pi-build/source/
-python -m build .test-artifacts/pi-build/source \
-  --outdir .test-artifacts/pi-dist
-
-# Test only the Pi client
-pytest pi-client/tests --basetemp=.test-artifacts/pytest/pi-client
-
-# Run the backend locally
-(cd azure-backend && func start)
-
-# Test only the backend
-pytest azure-backend/tests --basetemp=.test-artifacts/pytest/backend
-
-# Validate only infrastructure
-mkdir -p .test-artifacts/bicep
-az bicep build --file infra/main.bicep \
-  --outfile .test-artifacts/bicep/main.json
-
-# Provision only infrastructure
-export ADMIN_API_KEY="$(openssl rand -base64 48)"
-azd provision
-
-# Deploy only the backend
-azd deploy azure-backend
-
-# Build and publish a Pi release manually
-pi-client/packaging/build-release.sh --version 1.0.0
-gh release create pi-v1.0.0 .test-artifacts/pi-client-release/dist/* \
-  --target main \
-  --title "Home Assistant Pi 1.0.0" \
-  --generate-notes
+az login
+azd auth login
+python3 infra/scripts/backend_lifecycle.py install \
+  --environment-name home \
+  --location australiaeast
 ```
 
-Local test output, coverage data, temporary recordings, build products, and
-validation output must be written under `_src/.test-artifacts/`. It is ignored
-by Git and can be deleted as one folder after production rollout. Test source
-remains next to each independently buildable component.
+On Windows PowerShell, use `python` instead of `python3`:
 
-From the repository root:
+```powershell
+Set-Location _src
+az login
+azd auth login
+python infra\scripts\backend_lifecycle.py install `
+  --environment-name home `
+  --location australiaeast
+```
+
+This one command creates or updates the resource group, Function App, Storage,
+Key Vault, Speech, Azure OpenAI, Application Insights, Log Analytics, and RBAC
+assignments, then deploys the backend code and checks `/api/health`. It
+generates an administrator key on first use and reuses it on later runs from
+the ignored `_src/.azure/` environment. The final output includes the API URL,
+storage account, and Bash/PowerShell device-provisioning commands. Run the one
+for your shell; it prints the device ID and token once for the Pi configuration
+in section 1.
+
+## 4. Uninstall backend from Azure
+
+This permanently deletes the environment resource group and every backend
+service and data store inside it. The command uses Azure Developer CLI purge
+mode for eligible soft-deleted dependencies, then verifies that the resource
+group is gone. Repeating it is safe.
 
 ```bash
-rm -rf _src/.test-artifacts
+cd _src
+az login
+azd auth login
+python3 infra/scripts/backend_lifecycle.py uninstall \
+  --environment-name home \
+  --yes
 ```
 
 ```powershell
-Remove-Item -Recurse -Force _src\.test-artifacts
+Set-Location _src
+az login
+azd auth login
+python infra\scripts\backend_lifecycle.py uninstall `
+  --environment-name home `
+  --yes
 ```
 
-See [`_src/docs/architecture.md`](_src/docs/architecture.md) for the full
-design and the component READMEs for setup and operational commands.
+The local `_src/.azure/home/` settings are intentionally retained so a later
+install can reuse the same environment settings. Key Vault purge protection
+remains enabled; uninstall rotates the local resource-name seed so Azure's
+retention of a protected deleted vault cannot block reinstalling the same
+environment name.
+
+Detailed design and troubleshooting remain in
+[`_src/docs/architecture.md`](_src/docs/architecture.md),
+[`_src/pi-client/README.md`](_src/pi-client/README.md), and
+[`_src/infra/README.md`](_src/infra/README.md).

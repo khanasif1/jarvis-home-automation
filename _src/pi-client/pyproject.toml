@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-assistant-pi"
-version = "1.0.0"
+version = "1.0.1"
 description = "Raspberry Pi voice-assistant client for the jarvis-home-automation project"
 readme = "README.md"
 requires-python = ">=3.9"
