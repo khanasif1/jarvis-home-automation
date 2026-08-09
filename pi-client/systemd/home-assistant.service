@@ -1,0 +1,46 @@
+[Unit]
+Description=home-assistant-pi voice assistant client
+Documentation=https://github.com/khanasif1/jarvis-home-automation
+# Start only after the network and sound systems are available; the
+# service itself tolerates a temporarily-unreachable backend, but there is
+# no point starting before basic connectivity and audio exist.
+After=network-online.target sound.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=homeassistant
+Group=homeassistant
+SupplementaryGroups=audio
+
+# Configuration is provided via an EnvironmentFile so no secrets ever
+# appear in `systemctl status`, `journalctl`, or the unit file itself.
+EnvironmentFile=/etc/home-assistant-pi/config.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/opt/home-assistant-pi/venv/bin/home-assistant-pi run
+
+WorkingDirectory=/opt/home-assistant-pi
+
+Restart=on-failure
+RestartSec=5
+
+# journald captures stdout/stderr; the application never writes its own
+# log files. See pi-client/README.md for how to bound journald's disk
+# usage (SystemMaxUse=).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=home-assistant-pi
+
+# Hardening: runtime code and configuration are root-owned and read-only to
+# the service account. The assistant keeps state/audio in memory and does not
+# need a writable filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

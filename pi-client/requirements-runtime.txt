@@ -1,0 +1,7 @@
+# Runtime dependencies only. This file is what the Raspberry Pi installer
+# uses (`pip install --no-cache-dir -r requirements-runtime.txt`) alongside
+# the pi-client wheel. It intentionally excludes test/lint/build tooling
+# (see requirements-dev.txt) and any wake-word engine extras, which are
+# optional and installed only if the operator selects that engine.
+requests>=2.31,<3
+sounddevice>=0.4.6,<1

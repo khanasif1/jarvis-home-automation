@@ -1,0 +1,18 @@
+# Production runtime dependencies only. Keep this file free of test,
+# lint, or Pi-client dependencies so the deployment package stays minimal
+# and does not pull in anything that runs on the Raspberry Pi.
+azure-functions==1.21.3
+azure-data-tables==12.5.0
+azure-identity==1.19.0
+jsonschema==4.23.0
+pydantic==2.9.2
+requests==2.32.3
+openai==1.51.2
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.149.0
+# zoneinfo (used to validate/interpret IANA timezone names) relies on the
+# host having an IANA tzdata database available. This is not guaranteed on
+# every platform/interpreter, so it is pinned explicitly rather than
+# assumed to already be present at the OS level.
+tzdata==2026.3

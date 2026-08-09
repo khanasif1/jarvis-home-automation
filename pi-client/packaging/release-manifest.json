@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Template describing the metadata written into each home-assistant-pi release bundle by build-release.sh / build-release.ps1. A concrete release-manifest.json (with real values) is generated at build time and placed inside home-assistant-pi-bundle-<version>.tar.gz.",
+  "name": "home-assistant-pi",
+  "version": "0.0.0",
+  "wheel": "home_assistant_pi-0.0.0-py3-none-any.whl",
+  "wheelSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "files": [
+    "home_assistant_pi-0.0.0-py3-none-any.whl",
+    "install.sh",
+    "update.sh",
+    "uninstall.sh",
+    "home-assistant.service",
+    "config.env.example",
+    "requirements-runtime.txt",
+    "VERSION",
+    "release-manifest.json"
+  ],
+  "checksums_file": "SHA256SUMS",
+  "excludes": [
+    "azure-backend source or dependencies",
+    "Bicep templates or Azure deployment scripts",
+    "backend tests",
+    "git history",
+    "development dependencies",
+    "test recordings",
+    "temporary audio files",
+    "build caches",
+    "a bundled Python virtual environment"
+  ]
+}

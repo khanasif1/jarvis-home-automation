@@ -1,0 +1,5 @@
+# Development-only dependencies: testing tools plus the pinned production
+# requirements they exercise. Never bundled into the deployment package.
+-r requirements.txt
+pytest==8.3.3
+pytest-cov==5.0.0
