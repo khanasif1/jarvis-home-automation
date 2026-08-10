@@ -67,14 +67,18 @@ def _run(
 
 def _require_azure_cli() -> str:
     command = os.environ.get("AZ_COMMAND", "az")
-    if shutil.which(command) is None:
+    resolved_command = shutil.which(command)
+    if resolved_command is None:
         raise LifecycleError(
             "Azure CLI was not found. Install it from "
             "https://learn.microsoft.com/cli/azure/install-azure-cli"
         )
-    if _run([command, "account", "show", "--output", "none"], check=False).returncode:
+    if _run(
+        [resolved_command, "account", "show", "--output", "none"],
+        check=False,
+    ).returncode:
         raise LifecycleError("Azure CLI is not signed in. Run `az login` first.")
-    return command
+    return resolved_command
 
 
 def _validate_environment(name: str) -> None:
