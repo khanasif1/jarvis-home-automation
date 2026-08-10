@@ -1,44 +1,27 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-assistant-pi"
-version = "1.0.1"
-description = "Raspberry Pi voice-assistant client for the jarvis-home-automation project"
+version = "2.0.0"
+description = "Low-latency wake-word voice client for Raspberry Pi 3B"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = "==3.11.*"
 license = "MIT"
 authors = [{ name = "jarvis-home-automation contributors" }]
-keywords = ["raspberry-pi", "voice-assistant", "wake-word", "home-automation"]
+keywords = ["raspberry-pi", "voice-assistant", "wake-word", "streaming"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
   "Operating System :: POSIX :: Linux",
-  "Intended Audience :: Developers",
-  "Topic :: Home Automation",
+  "Intended Audience :: End Users/Desktop",
 ]
-
-# Keep this list intentionally minimal: every dependency added here is
-# installed on every Raspberry Pi device, so disk space and install time
-# are both directly affected. See requirements-runtime.txt for the pinned
-# bounded equivalent used by the release bundle installer.
 dependencies = [
-  "requests>=2.31,<3",
-  "sounddevice>=0.4.6,<1",
-]
-
-[project.optional-dependencies]
-porcupine = ["pvporcupine>=3.0,<4"]
-openwakeword = ["openwakeword>=0.4,<1"]
-dev = [
-  "pytest>=7.4",
-  "pytest-cov>=4.1",
-  "build>=1.0",
-  "ruff>=0.4",
+  "openwakeword==0.6.0",
+  "requests>=2.32,<3",
+  "sounddevice>=0.5,<1",
+  "webrtcvad-wheels>=2.0.14,<3",
 ]
 
 [project.urls]
@@ -56,18 +39,3 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 home_assistant_pi = ["assets/*.wav"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-# Keep all generated pytest cache/tmp output under the source-root
-# .test-artifacts/ directory instead of scattering it inside pi-client/.
-cache_dir = "../.test-artifacts/pi-client/pytest_cache"
-addopts = "--basetemp=../.test-artifacts/pi-client/pytest-tmp"
-
-[tool.ruff]
-target-version = "py39"
-cache-dir = "../.test-artifacts/pi-client/ruff-cache"
-
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]

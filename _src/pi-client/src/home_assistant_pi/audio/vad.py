@@ -1,76 +1,108 @@
-"""Simple, dependency-free energy-based voice activity detection (VAD).
-
-This is intentionally a lightweight RMS-threshold detector rather than a
-machine-learning VAD: it needs no extra runtime dependency and is more than
-sufficient for deciding when a user has stopped speaking after a wake word,
-which keeps the Pi release small.
-"""
+"""WebRTC VAD and bounded command-stream termination."""
 
 from __future__ import annotations
 
-import array
-import math
-from dataclasses import dataclass
+from collections.abc import Iterator
+from typing import Protocol
 
 
-def rms_energy(pcm16_bytes: bytes) -> float:
-    """Compute the root-mean-square energy of a PCM16 little-endian buffer.
-
-    Returns 0.0 for empty input instead of raising, so callers can treat
-    silence/empty chunks uniformly.
-    """
-    if not pcm16_bytes:
-        return 0.0
-    samples = array.array("h")
-    # array module reads native byte order; PCM16 WAV/streams are little
-    # endian which matches virtually all Raspberry Pi / x86 hosts. Guard
-    # against odd-length buffers (a truncated final sample).
-    usable_len = len(pcm16_bytes) - (len(pcm16_bytes) % 2)
-    samples.frombytes(pcm16_bytes[:usable_len])
-    if len(samples) == 0:
-        return 0.0
-    total = sum(float(s) * float(s) for s in samples)
-    return math.sqrt(total / len(samples))
+class NoSpeechDetected(RuntimeError):
+    """Raised when the user does not begin a command after wake activation."""
 
 
-@dataclass
+class _VadEngine(Protocol):
+    def is_speech(self, frame: bytes, sample_rate: int) -> bool: ...
+
+
 class VoiceActivityDetector:
-    """Tracks consecutive silent chunks to decide when speech has ended.
+    def __init__(self, mode: int = 2, engine: _VadEngine | None = None) -> None:
+        if mode not in {0, 1, 2, 3}:
+            raise ValueError("WebRTC VAD mode must be 0, 1, 2, or 3.")
+        if engine is None:
+            try:
+                import webrtcvad
+            except ImportError as exc:
+                raise RuntimeError("webrtcvad-wheels is required for command detection") from exc
+            engine = webrtcvad.Vad(mode)
+        self._engine = engine
 
-    Args:
-        threshold: RMS energy below which a chunk is considered silence.
-        silence_chunks_to_stop: number of consecutive silent chunks required
-            before :meth:`process_chunk` reports that speech has ended.
-    """
+    def is_speech(self, frame: bytes, sample_rate: int = 16_000) -> bool:
+        return bool(self._engine.is_speech(frame, sample_rate))
 
-    threshold: float = 300.0
-    silence_chunks_to_stop: int = 15
 
-    _silent_streak: int = 0
-    _has_heard_speech: bool = False
+class CommandAudioStream(Iterator[bytes]):
+    """Yields live PCM frames until silence or the 30-second hard ceiling."""
 
-    def reset(self) -> None:
-        self._silent_streak = 0
-        self._has_heard_speech = False
+    def __init__(
+        self,
+        chunks: Iterator[bytes],
+        vad: VoiceActivityDetector,
+        *,
+        sample_rate: int = 16_000,
+        frame_duration_ms: int = 20,
+        no_speech_timeout_seconds: float = 3.0,
+        silence_timeout_seconds: float = 1.2,
+        max_command_seconds: float = 30.0,
+    ) -> None:
+        if frame_duration_ms not in {10, 20, 30}:
+            raise ValueError("WebRTC VAD frames must be 10, 20, or 30 ms.")
+        if max_command_seconds > 30.0:
+            raise ValueError("Command duration cannot exceed 30 seconds.")
+        self._chunks = chunks
+        self._vad = vad
+        self._sample_rate = sample_rate
+        self._frame_duration_ms = frame_duration_ms
+        self._frame_bytes = sample_rate * frame_duration_ms // 1000 * 2
+        self._no_speech_frames = max(
+            1, int(no_speech_timeout_seconds * 1000 / frame_duration_ms)
+        )
+        self._silence_frames = max(
+            1, int(silence_timeout_seconds * 1000 / frame_duration_ms)
+        )
+        self._max_frames = max(1, int(max_command_seconds * 1000 / frame_duration_ms))
+        self._frames = 0
+        self._silent_frames = 0
+        self._heard_speech = False
+        self._stop_next = False
+        self.no_speech_detected = False
 
-    def process_chunk(self, pcm16_bytes: bytes) -> bool:
-        """Feed one audio chunk to the detector.
+    def __iter__(self) -> "CommandAudioStream":
+        return self
 
-        Returns:
-            True once speech has been detected and then followed by enough
-            consecutive silent chunks to conclude the utterance is over.
-        """
-        energy = rms_energy(pcm16_bytes)
-        is_speech = energy >= self.threshold
+    def __next__(self) -> bytes:
+        if self._stop_next or self._frames >= self._max_frames:
+            if not self._heard_speech:
+                self.no_speech_detected = True
+                raise NoSpeechDetected("No command speech was detected.")
+            raise StopIteration
 
-        if is_speech:
-            self._has_heard_speech = True
-            self._silent_streak = 0
-            return False
+        try:
+            frame = next(self._chunks)
+        except StopIteration:
+            if not self._heard_speech:
+                self.no_speech_detected = True
+                raise NoSpeechDetected("Microphone stream ended before speech began.")
+            raise
+        if len(frame) != self._frame_bytes:
+            raise RuntimeError(
+                f"Expected {self._frame_bytes} PCM bytes per frame, received {len(frame)}."
+            )
 
-        if not self._has_heard_speech:
-            # Still waiting for the user to start speaking at all.
-            return False
+        self._frames += 1
+        if self._vad.is_speech(frame, self._sample_rate):
+            self._heard_speech = True
+            self._silent_frames = 0
+        elif self._heard_speech:
+            self._silent_frames += 1
+            if self._silent_frames >= self._silence_frames:
+                self._stop_next = True
+        elif self._frames >= self._no_speech_frames:
+            self.no_speech_detected = True
+            raise NoSpeechDetected("No command speech began before the activation timeout.")
 
-        self._silent_streak += 1
-        return self._silent_streak >= self.silence_chunks_to_stop
+        return frame
+
+    def close(self) -> None:
+        close = getattr(self._chunks, "close", None)
+        if callable(close):
+            close()

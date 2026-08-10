@@ -1,3 +1,13 @@
-"""Audio subsystem: capture, playback, WAV I/O, and voice-activity detection."""
+"""Audio capture, VAD, cue loading, and streaming playback."""
 
-from __future__ import annotations
+from .capture import AudioCapture
+from .playback import AudioPlayback
+from .vad import CommandAudioStream, NoSpeechDetected, VoiceActivityDetector
+
+__all__ = [
+    "AudioCapture",
+    "AudioPlayback",
+    "CommandAudioStream",
+    "NoSpeechDetected",
+    "VoiceActivityDetector",
+]

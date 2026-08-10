@@ -1,141 +1,157 @@
-# Home Assistant
+# Jarvis Home Voice Assistant
 
-The four lifecycle operations below are the supported deployment path. Each
-install or uninstall command is idempotent: rerunning it with the same
-arguments is safe. Application source is under `_src/`; run Azure commands
-from that directory.
+Jarvis is a small half-duplex voice assistant for a 64-bit Raspberry Pi 3B. The
+Pi performs only **“hey jarvis”** wake-word detection, WebRTC voice activity
+detection, 16 kHz PCM capture, and 24 kHz PCM playback. An always-ready Azure
+Function receives the live request stream and uses its managed identity to call
+GPT Realtime in Microsoft Foundry. Storage and Foundry reject key
+authentication.
+
+The request audio starts uploading immediately; it is not recorded to a WAV
+file. Azure Functions HTTP streaming is turn-based rather than full-duplex, so
+the response begins after VAD closes the command, then plays on the Pi as each
+response chunk arrives. A command ends after 1.2 seconds of silence or at the
+30-second hard maximum.
 
 ## 1. Install application on Pi
 
-On Raspberry Pi OS, run the complete block below. It downloads the release
-artifacts, verifies the checksum, and installs a production wake-word engine.
-Rerunning the whole block upgrades or repairs the same installation without
-replacing an existing configuration.
+**Prerequisites:** Raspberry Pi 3B, 64-bit Raspberry Pi OS Bookworm
+(`dpkg --print-architecture` must return `arm64`), USB/I2S microphone, speaker,
+internet access, and the **API base URL** plus **Device GUID** printed by
+section 3.
 
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-1.0.1.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.0.tar.gz SHA256SUMS
 
-curl -fL -o home-assistant-pi-bundle-1.0.1.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/home-assistant-pi-bundle-1.0.1.tar.gz
-curl -fL -o SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v1.0.1/SHA256SUMS
+curl --fail --location \
+  --output home-assistant-pi-bundle-2.0.0.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.0/home-assistant-pi-bundle-2.0.0.tar.gz
+curl --fail --location \
+  --output SHA256SUMS \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.0/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-1.0.1.tar.gz
-sudo ./install.sh --version 1.0.1 --wakeword-extra openwakeword
+tar -xzf home-assistant-pi-bundle-2.0.0.tar.gz
+
+sudo ./install.sh \
+  --version 2.0.0 \
+  --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
+  --device-guid "YOUR-DEVICE-GUID"
 ```
 
-The installer creates `/etc/home-assistant-pi/config.env` and waits to start
-the service until the required values are present. After section 3 prints the
-Azure API URL and device-provisioning command, set these values:
+The idempotent installer verifies the wheel, installs system/Python
+dependencies, downloads only the “hey jarvis” TFLite model files, writes a
+root-readable configuration, and starts `home-assistant-pi.service`. Rerun the
+same command to repair or update the installation.
 
 ```bash
-sudo nano /etc/home-assistant-pi/config.env
-```
-
-```dotenv
-HAP_DEVICE_ID=<provisioned-device-id>
-HAP_DEVICE_TOKEN=<provisioned-device-token>
-HAP_API_BASE_URL=https://<function-app>.azurewebsites.net/api
-HAP_WAKEWORD_ENGINE=openwakeword
-```
-
-Then start and verify the service:
-
-```bash
-sudo systemctl restart home-assistant-pi.service
 sudo systemctl status home-assistant-pi.service --no-pager
+sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
+sudo /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi doctor
 ```
 
-## 2. Uninstall application on Pi
+If PortAudio selects the wrong hardware, list devices and set
+`HAP_INPUT_DEVICE` / `HAP_OUTPUT_DEVICE` in
+`/etc/home-assistant-pi/config.env`:
 
-The retained release bundle provides a rerunnable uninstaller. `--purge`
-removes the service, application, configuration, and dedicated system
-user/group. Running it again when those resources are absent is a no-op.
+```bash
+sudo /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi devices
+sudo nano /etc/home-assistant-pi/config.env
+sudo systemctl restart home-assistant-pi.service
+```
+
+## 2. Un install application on Pi
+
+Run the retained release uninstaller. The first command preserves the API URL
+and Device GUID for a later reinstall; the second removes them too. Both are
+idempotent.
 
 ```bash
 cd ~/home-assistant-install
-sudo ./uninstall.sh --purge
+sudo ./uninstall.sh
 ```
 
-Without `--purge`, `/etc/home-assistant-pi/config.env` is preserved for a
-future reinstall.
+To remove all local application configuration:
+
+```bash
+cd ~/home-assistant-install
+sudo ./uninstall.sh --purge-config
+```
 
 ## 3. Install backend in Azure
 
-Prerequisites:
+**Prerequisites:** Python 3.11+, [Azure
+CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), a subscription
+with Foundry model quota, and permissions to create resources and role
+assignments. No Azure Developer CLI or GitHub Actions are used.
 
-- Python 3.11+
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- An Azure subscription with permission to create resources and role assignments
-
-Clone this repository, enter `_src/`, authenticate once, and run one lifecycle
-command:
+From a clone of this repository:
 
 ```bash
 cd _src
 az login
-azd auth login
+az account set --subscription "YOUR-SUBSCRIPTION-ID"
+
 python3 infra/scripts/backend_lifecycle.py install \
   --environment-name home \
-  --location australiaeast
+  --subscription-id "YOUR-SUBSCRIPTION-ID"
 ```
 
-On Windows PowerShell, use `python` instead of `python3`:
+PowerShell:
 
 ```powershell
 Set-Location _src
 az login
-azd auth login
+az account set --subscription "YOUR-SUBSCRIPTION-ID"
+
 python infra\scripts\backend_lifecycle.py install `
   --environment-name home `
-  --location australiaeast
+  --subscription-id "YOUR-SUBSCRIPTION-ID"
 ```
 
-This one command creates or updates the resource group, Function App, Storage,
-Key Vault, Speech, Azure OpenAI, Application Insights, Log Analytics, and RBAC
-assignments, then deploys the backend code and checks `/api/health`. It
-generates an administrator key on first use and reuses it on later runs from
-the ignored `_src/.azure/` environment. The final output includes the API URL,
-storage account, and Bash/PowerShell device-provisioning commands. Run the one
-for your shell; it prints the device ID and token once for the Pi configuration
-in section 1.
+The command idempotently registers providers; creates the resource group,
+identity-only Storage account, Application Insights, Log Analytics, Microsoft
+Foundry resource/model, always-ready Flex Consumption Function, and RBAC;
+deploys the backend; and checks `/api/health`. Defaults are `australiaeast` for
+the Function and `southindia` for the current `gpt-realtime-2` availability.
+Override them with `--location` and `--foundry-location` if your approved
+regions differ.
 
-## 4. Uninstall backend from Azure
+Copy the final **API base URL** and **Device GUID** into the Pi command in
+section 1. They are preserved in
+`~/.jarvis-home-automation/home.json`, so rerunning install keeps the same Pi
+identity.
 
-This permanently deletes the environment resource group and every backend
-service and data store inside it. The command uses Azure Developer CLI purge
-mode for eligible soft-deleted dependencies, then verifies that the resource
-group is gone. Repeating it is safe.
+## 4. UnInstall backend from azure
+
+This deletes the resource group and therefore the Function, Foundry deployment,
+Storage account, monitoring, and role assignments, then purges the Foundry
+account from soft delete. It is idempotent and requires `--yes` to prevent
+accidental deletion.
 
 ```bash
 cd _src
-az login
-azd auth login
 python3 infra/scripts/backend_lifecycle.py uninstall \
   --environment-name home \
+  --subscription-id "YOUR-SUBSCRIPTION-ID" \
   --yes
 ```
+
+PowerShell:
 
 ```powershell
 Set-Location _src
-az login
-azd auth login
 python infra\scripts\backend_lifecycle.py uninstall `
   --environment-name home `
+  --subscription-id "YOUR-SUBSCRIPTION-ID" `
   --yes
 ```
 
-The local `_src/.azure/home/` settings are intentionally retained so a later
-install can reuse the same environment settings. Key Vault purge protection
-remains enabled; uninstall rotates the local resource-name seed so Azure's
-retention of a protected deleted vault cannot block reinstalling the same
-environment name.
+The local Device GUID is retained for the Pi. The resource-name seed is rotated
+after deletion as an additional safeguard against stale global resource names.
 
-Detailed design and troubleshooting remain in
-[`_src/docs/architecture.md`](_src/docs/architecture.md),
-[`_src/pi-client/README.md`](_src/pi-client/README.md), and
-[`_src/infra/README.md`](_src/infra/README.md).
+See [`_src/docs/architecture.md`](_src/docs/architecture.md) for the design and
+[`_src/contracts/openapi.yaml`](_src/contracts/openapi.yaml) for the wire
+contract.

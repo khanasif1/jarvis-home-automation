@@ -35,7 +35,7 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09
       dailyQuotaGb: dailyQuotaGb
     }
     features: {
-      disableLocalAuth: false
+      disableLocalAuth: true
     }
   }
 }
@@ -49,6 +49,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
     Application_Type: 'web'
     WorkspaceResourceId: logAnalyticsWorkspace.id
     IngestionMode: 'LogAnalytics'
+    DisableLocalAuth: true
     publicNetworkAccessForIngestion: 'Enabled'
     publicNetworkAccessForQuery: 'Enabled'
   }
@@ -66,10 +67,6 @@ output appInsightsId string = appInsights.id
 @description('Name of the Application Insights component.')
 output appInsightsName string = appInsights.name
 
-@description('Application Insights connection string (contains an ingestion key; treat as sensitive).')
+@description('Application Insights endpoint-identification string; ingestion is authenticated with Entra.')
 @secure()
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
-
-@description('Application Insights instrumentation key (legacy; treat as sensitive).')
-@secure()
-output appInsightsInstrumentationKey string = appInsights.properties.InstrumentationKey

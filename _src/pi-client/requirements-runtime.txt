@@ -1,7 +1,8 @@
-# Runtime dependencies only. This file is what the Raspberry Pi installer
-# uses (`pip install --no-cache-dir -r requirements-runtime.txt`) alongside
-# the pi-client wheel. It intentionally excludes test/lint/build tooling
-# (see requirements-dev.txt) and any wake-word engine extras, which are
-# optional and installed only if the operator selects that engine.
-requests>=2.31,<3
-sounddevice>=0.4.6,<1
+# The installer uses these directly so openWakeWord's unused ONNX/training
+# dependencies never enter the constrained Pi runtime.
+numpy>=1.23.2,<2
+requests>=2.32,<3
+sounddevice>=0.5,<1
+tflite-runtime>=2.14,<3
+tqdm>=4,<5
+webrtcvad-wheels>=2.0.14,<3

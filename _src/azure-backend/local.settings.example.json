@@ -3,32 +3,13 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "APP_ENVIRONMENT": "development",
-
-    "DEVICE_API_TOKENS": "{\"pi-kitchen-01\": \"replace-with-a-long-random-token\"}",
-    "ADMIN_API_KEY": "replace-with-a-long-random-admin-key",
-    "OAUTH_STATE_SIGNING_KEY": "",
-
-    "PERSISTENCE_MODE": "memory",
-    "TABLE_STORAGE_CONNECTION_STRING": "",
-    "STORAGE_TABLE_ENDPOINT": "",
-
-    "AZURE_OPENAI_ENDPOINT": "https://YOUR-RESOURCE.openai.azure.com/",
-    "AZURE_OPENAI_API_KEY": "replace-with-your-azure-openai-key",
-    "AZURE_OPENAI_DEPLOYMENT": "gpt-4.1-mini",
-    "AZURE_OPENAI_API_VERSION": "2024-10-21",
-
-    "SPEECH_REGION": "eastus",
-    "SPEECH_API_KEY": "replace-with-your-speech-key",
-    "SPEECH_DEFAULT_VOICE": "en-US-JennyNeural",
-
-    "GOOGLE_OAUTH_CLIENT_ID": "",
-    "GOOGLE_OAUTH_CLIENT_SECRET": "",
-    "GOOGLE_OAUTH_REDIRECT_URI": "",
-    "GOOGLE_OAUTH_SCOPES": "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/gmail.readonly",
-
-    "IDEMPOTENCY_TTL_SECONDS": "86400",
-    "MAX_TOOL_ITERATIONS": "5"
+    "PYTHON_ENABLE_INIT_INDEXING": "1",
+    "DEVICE_GUID": "00000000-0000-4000-8000-000000000000",
+    "AZURE_OPENAI_ENDPOINT": "https://YOUR-RESOURCE.openai.azure.com",
+    "AZURE_OPENAI_DEPLOYMENT_NAME": "gpt-realtime-2",
+    "AZURE_OPENAI_VOICE": "alloy",
+    "AZURE_CLIENT_USE_MANAGED_IDENTITY": "false",
+    "FOUNDRY_RESPONSE_TIMEOUT_SECONDS": "60"
   },
   "Host": {
     "LocalHttpPort": 7071,

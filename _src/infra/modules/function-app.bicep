@@ -1,30 +1,13 @@
-// Function App module: Linux Azure Functions app (Python) hosting the
-// home_assistant_api backend, fronted by a system-assigned managed identity
-// used for Key Vault secret access and RBAC-based access to Storage, Speech,
-// and Azure OpenAI.
-metadata description = 'Provisions the Linux Function App (Python) that runs the Jarvis home-automation backend.'
+// Python 3.11 Flex Consumption Function with one always-ready HTTP instance.
 
-@description('Azure region for the Function App and its hosting plan.')
 param location string
-
-@description('Base name used to derive the Function App and hosting-plan names.')
 param baseName string
-
-@description('Tags applied to the Function App resources.')
 param tags object = {}
 
-@description('Hosting plan SKU. New deployments use Linux Flex Consumption.')
-@allowed([
-  'FC1'
-])
-param planSkuName string = 'FC1'
-
-@description('Maximum number of Flex Consumption instances.')
 @minValue(1)
 @maxValue(1000)
-param maximumInstanceCount int = 20
+param maximumInstanceCount int = 5
 
-@description('Memory allocated to each Flex Consumption instance in MB.')
 @allowed([
   512
   2048
@@ -32,70 +15,31 @@ param maximumInstanceCount int = 20
 ])
 param instanceMemoryMB int = 2048
 
-@description('Python runtime version for the Function App.')
-@allowed([
-  '3.10'
-  '3.11'
-  '3.12'
-])
-param pythonVersion string = '3.11'
-
-@description('Storage account name backing AzureWebJobsStorage and application data tables.')
 param storageAccountName string
-
-@description('Blob endpoint of the storage account (used for identity-based data access app settings).')
 param storageBlobEndpoint string
-
-@description('Queue endpoint of the storage account (used by the Functions host identity-based connection).')
 param storageQueueEndpoint string
-
-@description('Table endpoint of the storage account (used for identity-based data access app settings).')
 param storageTableEndpoint string
-
-@description('Blob container used by Flex Consumption for deployment packages.')
 param deploymentContainerName string
 
-@description('Key Vault URI, used to build Key Vault reference app settings.')
-param keyVaultUri string
-
-@description('Application Insights connection string.')
 @secure()
 param appInsightsConnectionString string
 
-@description('Azure AI Speech endpoint.')
-param speechEndpoint string
+@secure()
+param deviceGuid string
 
-@description('Azure AI Speech region.')
-param speechRegion string
+param foundryEndpoint string
+param foundryDeploymentName string
+param foundryVoice string = 'alloy'
 
-@description('Name of the Key Vault secret holding the Speech account key.')
-param speechKeySecretName string
-
-@description('Azure OpenAI endpoint.')
-param openAiEndpoint string
-
-@description('Azure OpenAI chat-completion deployment name.')
-param openAiDeploymentName string
-
-@description('Azure OpenAI data-plane API version used by the backend SDK.')
-param openAiApiVersion string = '2024-10-21'
-
-@description('Name of the Key Vault secret holding the Azure OpenAI account key.')
-param openAiKeySecretName string
-
-@description('Additional application settings to merge in, e.g. Google OAuth client ids or feature flags. Values that are secrets should be Key Vault references, not raw values.')
-param additionalAppSettings array = []
-
-var planName = '${baseName}-plan'
 var functionAppName = '${baseName}-func'
 
 resource hostingPlan 'Microsoft.Web/serverfarms@2024-04-01' = {
-  name: planName
+  name: '${baseName}-plan'
   location: location
   tags: tags
   kind: 'linux'
   sku: {
-    name: planSkuName
+    name: 'FC1'
     tier: 'FlexConsumption'
   }
   properties: {
@@ -106,9 +50,7 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2024-04-01' = {
 resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppName
   location: location
-  tags: union(tags, {
-    'azd-service-name': 'azure-backend'
-  })
+  tags: tags
   kind: 'functionapp,linux'
   identity: {
     type: 'SystemAssigned'
@@ -130,10 +72,21 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       scaleAndConcurrency: {
         maximumInstanceCount: maximumInstanceCount
         instanceMemoryMB: instanceMemoryMB
+        alwaysReady: [
+          {
+            name: 'http'
+            instanceCount: 1
+          }
+        ]
+        triggers: {
+          http: {
+            perInstanceConcurrency: 4
+          }
+        }
       }
       runtime: {
         name: 'python'
-        version: pythonVersion
+        version: '3.11'
       }
     }
     siteConfig: {
@@ -141,7 +94,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'
       http20Enabled: true
-      appSettings: concat([
+      appSettings: [
         {
           name: 'AzureWebJobsStorage__blobServiceUri'
           value: storageBlobEndpoint
@@ -163,6 +116,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: 'python'
         }
         {
+          name: 'PYTHON_ENABLE_INIT_INDEXING'
+          value: '1'
+        }
+        {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
           value: 'true'
         }
@@ -175,54 +132,38 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: appInsightsConnectionString
         }
         {
+          name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
+          value: 'Authorization=AAD'
+        }
+        {
           name: 'STORAGE_ACCOUNT_NAME'
           value: storageAccountName
         }
         {
-          name: 'STORAGE_BLOB_ENDPOINT'
-          value: storageBlobEndpoint
-        }
-        {
-          name: 'STORAGE_TABLE_ENDPOINT'
-          value: storageTableEndpoint
-        }
-        {
-          name: 'KEY_VAULT_URI'
-          value: keyVaultUri
-        }
-        {
-          name: 'SPEECH_ENDPOINT'
-          value: speechEndpoint
-        }
-        {
-          name: 'SPEECH_REGION'
-          value: speechRegion
-        }
-        {
-          name: 'SPEECH_API_KEY'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${speechKeySecretName})'
+          name: 'DEVICE_GUID'
+          value: deviceGuid
         }
         {
           name: 'AZURE_OPENAI_ENDPOINT'
-          value: openAiEndpoint
+          value: foundryEndpoint
         }
         {
-          name: 'AZURE_OPENAI_DEPLOYMENT'
-          value: openAiDeploymentName
+          name: 'AZURE_OPENAI_DEPLOYMENT_NAME'
+          value: foundryDeploymentName
         }
         {
-          name: 'AZURE_OPENAI_API_VERSION'
-          value: openAiApiVersion
-        }
-        {
-          name: 'AZURE_OPENAI_API_KEY'
-          value: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${openAiKeySecretName})'
+          name: 'AZURE_OPENAI_VOICE'
+          value: foundryVoice
         }
         {
           name: 'AZURE_CLIENT_USE_MANAGED_IDENTITY'
           value: 'true'
         }
-      ], additionalAppSettings)
+        {
+          name: 'FOUNDRY_RESPONSE_TIMEOUT_SECONDS'
+          value: '60'
+        }
+      ]
     }
   }
 }
@@ -243,20 +184,6 @@ resource ftpBasicAuthPolicy 'Microsoft.Web/sites/basicPublishingCredentialsPolic
   }
 }
 
-@description('Resource ID of the Function App.')
-output functionAppId string = functionApp.id
-
-@description('Name of the Function App.')
 output functionAppName string = functionApp.name
-
-@description('Default hostname of the Function App (no scheme).')
-output functionAppHostName string = functionApp.properties.defaultHostName
-
-@description('Base API URL the Pi client and other consumers should call.')
 output apiBaseUrl string = 'https://${functionApp.properties.defaultHostName}/api'
-
-@description('Principal ID of the Function App system-assigned managed identity, used for role assignments.')
 output functionAppPrincipalId string = functionApp.identity.principalId
-
-@description('Resource ID of the hosting plan.')
-output hostingPlanId string = hostingPlan.id

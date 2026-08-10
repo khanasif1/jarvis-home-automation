@@ -1,152 +1,104 @@
-"""HTTP client for the azure-backend voice API.
-
-Uses ``requests`` with a bounded timeout and a small retry budget for
-transient network errors. The device token is sent only as an
-``Authorization: Bearer <device token>`` header value and is never logged
-(no log message, exception string, or ``repr()`` in this module ever
-includes the header value or the raw token).
-
-``base_url`` is expected to already include the backend's API prefix (the
-``infra`` deployment output ``apiBaseUrl`` is
-``https://<function-app>.azurewebsites.net/api``, matching the
-``servers: - url: https://{functionAppHost}/api`` entry in
-``contracts/openapi.yaml``). Every path built here is therefore relative to
-that prefix (``/voice-turn``, ``/health``, ``/reminders/...``) -- it must
-never re-add ``/api`` itself.
-"""
+"""Chunked PCM upload and streamed PCM response client."""
 
 from __future__ import annotations
 
-import logging
-import time
-from typing import Optional
+import contextlib
+import json
+from collections.abc import Iterator
+from typing import Any
 
 import requests
 
-from .models import ErrorResponse, Reminder, VoiceTurnRequest, VoiceTurnResponse
-
-logger = logging.getLogger(__name__)
+from ..audio.vad import NoSpeechDetected
+from ..config import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE, SAMPLE_WIDTH_BYTES
 
 
 class ApiError(RuntimeError):
-    """Raised when the backend API call fails or returns an error payload."""
-
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
 
 
 class ApiClient:
-    """Thin wrapper around the backend's HTTP voice API."""
-
     def __init__(
         self,
         base_url: str,
-        device_token: str,
-        timeout_seconds: float = 15.0,
-        retries: int = 2,
-        session: Optional[requests.Session] = None,
+        device_guid: str,
+        *,
+        session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._device_token = device_token
-        self.timeout_seconds = timeout_seconds
-        self.retries = max(0, retries)
+        self._device_guid = device_guid
         self._session = session or requests.Session()
 
-    def _headers(self, extra: Optional[dict] = None) -> dict:
-        headers = {
-            "Authorization": "Bearer " + self._device_token,
-            "Content-Type": "application/json",
-        }
-        if extra:
-            headers.update(extra)
-        return headers
+    def health(self) -> bool:
+        try:
+            response = self._session.get(f"{self.base_url}/health", timeout=(5, 5))
+            return response.status_code == 200 and response.json() == {"status": "ok"}
+        except (requests.RequestException, ValueError):
+            return False
 
-    def _request(
-        self,
-        method: str,
-        path: str,
-        json_body: Optional[dict] = None,
-        extra_headers: Optional[dict] = None,
-    ) -> dict:
-        url = f"{self.base_url}{path}"
-        last_exc: Optional[Exception] = None
-        for attempt in range(self.retries + 1):
-            try:
-                response = self._session.request(
-                    method,
-                    url,
-                    json=json_body,
-                    headers=self._headers(extra_headers),
-                    timeout=self.timeout_seconds,
+    @contextlib.contextmanager
+    def voice_response(self, audio_chunks: Iterator[bytes]) -> Iterator[Iterator[bytes]]:
+        response: requests.Response | None = None
+        try:
+            response = self._session.post(
+                f"{self.base_url}/voice/stream",
+                data=audio_chunks,
+                headers={
+                    "Content-Type": "audio/pcm",
+                    "X-Device-Guid": self._device_guid,
+                    "X-Audio-Sample-Rate": str(INPUT_SAMPLE_RATE),
+                    "X-Audio-Channels": "1",
+                    "X-Audio-Sample-Width": str(SAMPLE_WIDTH_BYTES),
+                },
+                timeout=(10, 75),
+                stream=True,
+                allow_redirects=False,
+            )
+        except NoSpeechDetected:
+            raise
+        except requests.RequestException as exc:
+            if getattr(audio_chunks, "no_speech_detected", False):
+                raise NoSpeechDetected("No command speech was detected.") from exc
+            raise ApiError(f"Voice request failed: {exc}") from exc
+        finally:
+            close = getattr(audio_chunks, "close", None)
+            if callable(close):
+                close()
+
+        try:
+            if response.status_code != 200:
+                raise ApiError(
+                    self._error_message(response),
+                    status_code=response.status_code,
                 )
-                if response.status_code >= 400:
-                    error = self._parse_error(response)
-                    raise ApiError(
-                        f"{error.code}: {error.message}",
-                        status_code=response.status_code,
-                    )
-                if not response.content:
-                    return {}
-                return response.json()
-            except ApiError:
-                raise
-            except requests.RequestException as exc:
-                last_exc = exc
-                logger.warning(
-                    "API request to %s failed (attempt %d/%d): %s",
-                    path,
-                    attempt + 1,
-                    self.retries + 1,
-                    exc,
-                )
-                if attempt < self.retries:
-                    time.sleep(min(2**attempt, 5))
-                    continue
-        raise ApiError(f"Request to {path} failed after retries: {last_exc}")
+            expected = {
+                "X-Audio-Sample-Rate": str(OUTPUT_SAMPLE_RATE),
+                "X-Audio-Channels": "1",
+                "X-Audio-Sample-Width": str(SAMPLE_WIDTH_BYTES),
+            }
+            media_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+            if media_type != "audio/pcm":
+                raise ApiError("Backend response Content-Type is not audio/pcm.")
+            for name, value in expected.items():
+                if response.headers.get(name) != value:
+                    raise ApiError(f"Backend response {name} header must be {value}.")
+            yield response.iter_content(chunk_size=4_800)
+        finally:
+            response.close()
 
     @staticmethod
-    def _parse_error(response: requests.Response) -> ErrorResponse:
+    def _error_message(response: requests.Response) -> str:
         try:
-            data = response.json()
-            return ErrorResponse.from_dict(data)
-        except ValueError:
-            return ErrorResponse(
-                code=f"http_{response.status_code}",
-                message=response.text[:200] if response.text else response.reason,
-            )
-
-    def send_voice_turn(self, request: VoiceTurnRequest) -> VoiceTurnResponse:
-        """Send a voice turn (text or audio) and return the assistant's reply.
-
-        The request's ``requestId`` (already a UUID unique per logical
-        request) doubles as the required ``Idempotency-Key`` header, so a
-        genuine retry of the *same* request always carries the same key
-        while a new conversation turn always gets a fresh one.
-        """
-        data = self._request(
-            "POST",
-            "/voice-turn",
-            request.to_dict(),
-            extra_headers={"Idempotency-Key": request.request_id},
-        )
-        return VoiceTurnResponse.from_dict(data)
-
-    def fetch_due_reminders(self, device_id: str) -> list[Reminder]:
-        """Fetch reminders that are currently due for ``device_id``."""
-        data = self._request("GET", f"/reminders/due?deviceId={device_id}")
-        items = data.get("reminders", []) if isinstance(data, dict) else data
-        return [Reminder.from_dict(item) for item in items or []]
-
-    def acknowledge_reminder(self, reminder_id: str, device_id: str) -> None:
-        """Tell the backend a reminder has been delivered to the user."""
-        self._request("POST", f"/reminders/{reminder_id}/ack", {"deviceId": device_id})
+            payload: Any = response.json()
+            if isinstance(payload, dict):
+                error = payload.get("error", {})
+                if isinstance(error, dict) and error.get("message"):
+                    return str(error["message"])
+        except (ValueError, json.JSONDecodeError):
+            pass
+        return f"Backend returned HTTP {response.status_code}."
 
     def close(self) -> None:
         self._session.close()
-
-    def __enter__(self) -> "ApiClient":
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()

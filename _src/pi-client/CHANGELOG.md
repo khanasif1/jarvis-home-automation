@@ -1,37 +1,12 @@
 # Changelog
 
-All notable changes to the pi-client package are documented in this file.
-The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
-and this project uses simple semantic-ish versioning for Pi releases
-(`pi-vMAJOR.MINOR.PATCH`). Release bundles are built and published manually.
+## 2.0.0
 
-## [1.0.1] - 2026-08-09
-
-### Changed
-
-- Kept the release wheel in the extracted bundle after installation so
-  `install.sh` is truly idempotent and can repair the same version in place.
-
-## [1.0.0] - 2026-08-09
-
-### Added
-
-- Initial independent `pi-client` package: state machine, configuration
-  loading/validation, journald-friendly logging, audio capture/playback,
-  WAV helpers, a lightweight energy-based VAD, pluggable wake-word engines
-  (`keyboard`, `porcupine`, `openwakeword`), a backend API client, and a
-  reminder poller.
-- `home-assistant-pi` CLI with `--version`, `doctor`, `test-microphone`,
-  `test-speaker`, `disk-usage`, and `run` commands.
-- Idempotent `install.sh`, `update.sh`, and `uninstall.sh` scripts that
-  never use git or download the full repository, install only runtime
-  dependencies with `pip install --no-cache-dir`, run as a dedicated
-  `homeassistant` system user, preserve configuration across upgrades, and
-  automatically roll back a failed update.
-- systemd unit template (`systemd/home-assistant.service`).
-- Release packaging scripts (`packaging/build-release.sh`,
-  `packaging/build-release.ps1`) that build the wheel, sdist, a minimal Pi
-  release bundle, and `SHA256SUMS`.
-- Small bundled notification sound assets (activation, cancellation,
-  offline).
-- Unit test suite under `tests/`.
+- Replaced push-to-talk/file uploads with “hey jarvis” activation and chunked
+  PCM streaming.
+- Added WebRTC VAD with 3-second no-speech cancellation, 1.2-second
+  end-of-speech detection, and a 30-second hard maximum.
+- Reduced the Pi runtime to wake detection, VAD, streaming, and playback.
+- Replaced device registration and bearer tokens with one configured UUID.
+- Removed reminders, Google integrations, local application state, and all
+  committed tests.

@@ -1,23 +1,20 @@
 openapi: 3.1.0
 info:
-  title: Home Assistant Device API
-  version: 1.0.0
-  description: Contract shared by the Raspberry Pi client and Azure Functions backend.
+  title: Jarvis streaming voice API
+  version: 2.0.0
+  description: >
+    Turn-based HTTP streaming of raw PCM from one Raspberry Pi to an Azure
+    Function and raw PCM response audio back to the Pi.
 servers:
-  - url: https://{functionAppHost}/api
-    variables:
-      functionAppHost:
-        default: example.azurewebsites.net
-security:
-  - deviceToken: []
+  - url: https://YOUR-FUNCTION.azurewebsites.net
 paths:
-  /health:
+  /api/health:
     get:
       operationId: getHealth
-      security: []
+      summary: Check Function availability
       responses:
         "200":
-          description: Backend health status.
+          description: Healthy
           content:
             application/json:
               schema:
@@ -26,142 +23,125 @@ paths:
                 required: [status]
                 properties:
                   status:
-                    type: string
                     const: ok
-  /voice-turn:
+  /api/voice/stream:
     post:
-      operationId: createVoiceTurn
-      summary: Process one text or audio assistant turn.
+      operationId: streamVoiceTurn
+      summary: Upload one live command and stream one spoken response
+      security:
+        - DeviceGuid: []
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: true
-          schema:
-            type: string
-            minLength: 8
-            maxLength: 128
+        - $ref: "#/components/parameters/InputSampleRate"
+        - $ref: "#/components/parameters/InputChannels"
+        - $ref: "#/components/parameters/InputSampleWidth"
       requestBody:
         required: true
         content:
-          application/json:
+          audio/pcm:
             schema:
-              $ref: ./schemas/voice-turn-request.json
+              type: string
+              format: binary
+              description: >
+                Headerless little-endian PCM16 mono at 16 kHz. The body may use
+                chunked transfer encoding and must contain at most 960,000
+                bytes (30 seconds).
       responses:
         "200":
-          description: Completed assistant turn.
-          content:
-            application/json:
+          description: Streamed spoken response
+          headers:
+            Cache-Control:
               schema:
-                $ref: ./schemas/voice-turn-response.json
+                const: no-store
+            X-Audio-Sample-Rate:
+              schema:
+                const: "24000"
+            X-Audio-Channels:
+              schema:
+                const: "1"
+            X-Audio-Sample-Width:
+              schema:
+                const: "2"
+          content:
+            audio/pcm:
+              schema:
+                type: string
+                format: binary
+                description: Headerless little-endian PCM16 mono at 24 kHz.
         "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/InvalidAudio"
         "401":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
-        "429":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/InvalidAudio"
+        "415":
+          $ref: "#/components/responses/InvalidAudio"
         "500":
-          $ref: "#/components/responses/Error"
-  /reminders/due:
-    get:
-      operationId: listDueReminders
-      summary: List reminders that are due and not yet delivered to a device.
-      parameters:
-        - name: deviceId
-          in: query
-          required: true
-          schema:
-            type: string
-            pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
-      responses:
-        "200":
-          description: Due reminders ordered by due time.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [reminders]
-                properties:
-                  reminders:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/DueReminder"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-  /reminders/{reminderId}/ack:
-    post:
-      operationId: acknowledgeReminder
-      summary: Mark a reminder delivered after the Pi has announced it.
-      parameters:
-        - name: reminderId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [deviceId]
-              properties:
-                deviceId:
-                  type: string
-                  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
-      responses:
-        "200":
-          description: Reminder delivery state.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [reminderId, delivered]
-                properties:
-                  reminderId:
-                    type: string
-                    format: uuid
-                  delivered:
-                    type: boolean
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ServerError"
+        "502":
+          $ref: "#/components/responses/FoundryError"
 components:
   securitySchemes:
-    deviceToken:
-      type: http
-      scheme: bearer
-      bearerFormat: opaque-device-token
-  responses:
+    DeviceGuid:
+      type: apiKey
+      in: header
+      name: X-Device-Guid
+      description: Fixed canonical lowercase UUID configured on the Pi and Function.
+  parameters:
+    InputSampleRate:
+      name: X-Audio-Sample-Rate
+      in: header
+      required: true
+      schema:
+        const: "16000"
+    InputChannels:
+      name: X-Audio-Channels
+      in: header
+      required: true
+      schema:
+        const: "1"
+    InputSampleWidth:
+      name: X-Audio-Sample-Width
+      in: header
+      required: true
+      schema:
+        const: "2"
+  schemas:
     Error:
-      description: Request could not be completed.
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+  responses:
+    InvalidAudio:
+      description: The PCM body, headers, alignment, or duration is invalid.
       content:
         application/json:
           schema:
-            $ref: ./schemas/error-response.json
-  schemas:
-    DueReminder:
-      type: object
-      additionalProperties: false
-      required: [reminderId, title, dueAt]
-      properties:
-        reminderId:
-          type: string
-          format: uuid
-        title:
-          type: string
-          minLength: 1
-          maxLength: 500
-        dueAt:
-          type: string
-          format: date-time
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: The device GUID is missing, malformed, or incorrect.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FoundryError:
+      description: Foundry rejected or failed the Realtime turn before output began.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: Backend configuration or an unexpected server operation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

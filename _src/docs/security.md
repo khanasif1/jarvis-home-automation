@@ -1,41 +1,55 @@
 # Security
 
-## Trust boundaries
+## Azure authentication
 
-- Every device has a unique identifier and high-entropy bearer token.
-- Device tokens are provisioned out of band, stored in a root-readable file,
-  and never written to logs, diagnostics output, images, or service units.
-- The public health endpoint contains no configuration data. Voice requests
-  require authentication and are size-limited before processing.
-- Azure resources use managed identity and role assignments. Secrets belong in
-  Key Vault or platform application settings backed by Key Vault references.
-- The production Function host and Table repositories use identity-based
-  Storage connections; shared-key access on the Storage account is disabled.
-- FTP/SCM basic publishing credentials are disabled. Manual deployments use
-  Azure Developer CLI authentication and Azure RBAC.
-- Google refresh tokens are encrypted at rest and never returned to the Pi.
+- Microsoft Foundry has `disableLocalAuth: true`.
+- Storage has `allowSharedKeyAccess: false` and OAuth as its default.
+- The Function obtains a token for `https://ai.azure.com/.default` through its
+  system-assigned managed identity.
+- RBAC grants only `Cognitive Services OpenAI User` on Foundry and the
+  Functions host data roles on its one Storage account. Application Insights
+  ingestion uses `Authorization=AAD` and `Monitoring Metrics Publisher`.
+- No AI key, Storage key, Speech key, SAS token, client secret, or Key Vault
+  reference is present in source or app settings. The Application Insights
+  connection string identifies the telemetry endpoint; local ingestion
+  authentication is disabled and Microsoft Entra authorizes writes.
+- FTP and SCM basic publishing credentials are disabled.
 
-## Least privilege
+The Storage account is still required by the Azure Functions runtime and
+deployment system. It contains no Jarvis conversation, reminder, user, or
+device tables.
 
-The Pi service uses a dedicated non-login account in the `audio` group. Its
-configuration is owned by root and readable by the service group only. It does
-not run as root. The Function App receives only the data-plane roles required
-for Storage, Key Vault, Speech, and Azure OpenAI.
+## Pi authentication
+
+The approved device mechanism is one fixed random UUID sent as
+`X-Device-Guid`. The Function requires canonical lowercase form and compares it
+in constant time. The lifecycle command creates it once and the Pi installer
+stores it in a root-owned `0640` file. HTTPS is mandatory outside local
+development.
+
+A UUID is a simple shared credential, not hardware attestation. Anyone who
+obtains it can call the voice endpoint until it is changed in Azure and on the
+Pi. This is an explicit simplicity tradeoff for one home device. Do not put the
+GUID in logs, screenshots, issue reports, or source control.
 
 ## Data handling
 
-Audio is held in memory or a restrictive temporary file and deleted after each
-turn. Conversation audio persistence is disabled. Logs use correlation IDs and
-redact authorization headers, tokens, credentials, message bodies, and audio.
-Retention for Application Insights and Storage is configured in infrastructure.
+- Microphone audio exists in bounded memory while it streams.
+- The application never writes command or response audio to disk.
+- The backend creates one Foundry session per request and closes it on success,
+  failure, or client cancellation.
+- The backend logs failure categories but not audio, the device GUID, model
+  transcripts, or response content.
+- No conversation history persists between turns.
 
-## Operational requirements
+## Public surface
 
-- Rotate a device token immediately when a Pi is lost or rebuilt.
-- Restrict the Function App with network controls where the deployment allows.
-- Do not store long-lived Azure credentials in source files or local
-  configuration committed to Git.
-- Use separate Azure environments for development and production, and require
-  an explicit operator review before each production deployment.
-- Review dependency alerts and rebuild Pi bundles rather than modifying an
-  installed environment manually.
+`GET /api/health` is intentionally public and returns only `{"status":"ok"}`.
+`POST /api/voice/stream` is public at the network layer but requires the device
+GUID. Audio type, rate, channel count, width, sample alignment, and the
+30-second/960,000-byte limit are validated before a model response is returned.
+
+For an internet-facing multi-device or commercial deployment, replace the UUID
+with per-device certificates or Microsoft Entra workload identities and add
+edge rate limiting. Those controls are intentionally outside this single-Pi
+solution.
