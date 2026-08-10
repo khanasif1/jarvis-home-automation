@@ -195,6 +195,7 @@ Write idempotent Bicep that provisions:
 - Resource group.
 - Linux Flex Consumption Function App using Python 3.11.
 - One always-ready HTTP instance to reduce cold-start latency.
+- Maximum scale-out of 40, the Flex Consumption platform minimum.
 - Minimal StorageV2 account and deployment blob container required by the
   Functions host.
 - Log Analytics workspace and Application Insights.
@@ -216,6 +217,10 @@ Security requirements:
 - Function settings contain only endpoints, deployment/voice configuration,
   the fixed device UUID, and non-secret runtime flags.
 - Enable `PYTHON_ENABLE_INIT_INDEXING=1`.
+- Declare the language runtime only in `functionAppConfig.runtime`; do not add
+  Flex-managed runtime or remote-build app settings such as
+  `FUNCTIONS_WORKER_RUNTIME`, `FUNCTIONS_EXTENSION_VERSION`,
+  `SCM_DO_BUILD_DURING_DEPLOYMENT`, or `ENABLE_ORYX_BUILD`.
 - Disable FTP/SCM basic publishing authentication.
 - Use TLS 1.2 or newer and HTTPS only.
 - Do not output any key.
@@ -236,7 +241,12 @@ The root README must contain exactly these primary sections:
 
 Azure install must:
 
-- Check Azure CLI authentication and register required resource providers.
+- Check Azure CLI authentication and require Azure CLI 2.60.0 or newer.
+- Register every required resource provider, including
+  `Microsoft.AlertsManagement` for policy-created Application Insights smart
+  detector alerts, and verify each provider reaches `Registered`.
+- Validate the selected Flex Consumption region and configured Foundry model,
+  version, and deployment SKU before provisioning.
 - Use one cross-platform Python lifecycle command; do not require azd.
 - Generate one UUID with `uuid.uuid4()` only when the environment has none.
 - Preserve that UUID in restricted local lifecycle state and recover it from an

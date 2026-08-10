@@ -4,9 +4,9 @@ param location string
 param baseName string
 param tags object = {}
 
-@minValue(1)
+@minValue(40)
 @maxValue(1000)
-param maximumInstanceCount int = 5
+param maximumInstanceCount int = 40
 
 @allowed([
   512
@@ -94,77 +94,28 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'
       http20Enabled: true
-      appSettings: [
-        {
-          name: 'AzureWebJobsStorage__blobServiceUri'
-          value: storageBlobEndpoint
-        }
-        {
-          name: 'AzureWebJobsStorage__queueServiceUri'
-          value: storageQueueEndpoint
-        }
-        {
-          name: 'AzureWebJobsStorage__tableServiceUri'
-          value: storageTableEndpoint
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'python'
-        }
-        {
-          name: 'PYTHON_ENABLE_INIT_INDEXING'
-          value: '1'
-        }
-        {
-          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'true'
-        }
-        {
-          name: 'ENABLE_ORYX_BUILD'
-          value: 'true'
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
-          value: 'Authorization=AAD'
-        }
-        {
-          name: 'STORAGE_ACCOUNT_NAME'
-          value: storageAccountName
-        }
-        {
-          name: 'DEVICE_GUID'
-          value: deviceGuid
-        }
-        {
-          name: 'AZURE_OPENAI_ENDPOINT'
-          value: foundryEndpoint
-        }
-        {
-          name: 'AZURE_OPENAI_DEPLOYMENT_NAME'
-          value: foundryDeploymentName
-        }
-        {
-          name: 'AZURE_OPENAI_VOICE'
-          value: foundryVoice
-        }
-        {
-          name: 'AZURE_CLIENT_USE_MANAGED_IDENTITY'
-          value: 'true'
-        }
-        {
-          name: 'FOUNDRY_RESPONSE_TIMEOUT_SECONDS'
-          value: '60'
-        }
-      ]
     }
+  }
+}
+
+resource appSettings 'Microsoft.Web/sites/config@2024-04-01' = {
+  parent: functionApp
+  name: 'appsettings'
+  properties: {
+    AzureWebJobsStorage__credential: 'managedidentity'
+    AzureWebJobsStorage__blobServiceUri: storageBlobEndpoint
+    AzureWebJobsStorage__queueServiceUri: storageQueueEndpoint
+    AzureWebJobsStorage__tableServiceUri: storageTableEndpoint
+    PYTHON_ENABLE_INIT_INDEXING: '1'
+    APPLICATIONINSIGHTS_CONNECTION_STRING: appInsightsConnectionString
+    APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'Authorization=AAD'
+    STORAGE_ACCOUNT_NAME: storageAccountName
+    DEVICE_GUID: deviceGuid
+    AZURE_OPENAI_ENDPOINT: foundryEndpoint
+    AZURE_OPENAI_DEPLOYMENT_NAME: foundryDeploymentName
+    AZURE_OPENAI_VOICE: foundryVoice
+    AZURE_CLIENT_USE_MANAGED_IDENTITY: 'true'
+    FOUNDRY_RESPONSE_TIMEOUT_SECONDS: '60'
   }
 }
 

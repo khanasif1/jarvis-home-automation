@@ -26,11 +26,17 @@ INFRA_ROOT = SOURCE_ROOT / "infra"
 BACKEND_ROOT = SOURCE_ROOT / "azure-backend"
 STATE_ROOT = Path.home() / ".jarvis-home-automation"
 ENVIRONMENT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,14}[a-z0-9]$")
+MINIMUM_AZURE_CLI_VERSION = (2, 60, 0)
+FOUNDRY_DEPLOYMENT_NAME = "gpt-realtime-2"
+FOUNDRY_MODEL_NAME = "gpt-realtime-2"
+FOUNDRY_MODEL_VERSION = "2026-05-06"
+FOUNDRY_DEPLOYMENT_SKU = "GlobalStandard"
 PROVIDERS = (
     "Microsoft.Storage",
     "Microsoft.Web",
     "Microsoft.OperationalInsights",
     "Microsoft.Insights",
+    "Microsoft.AlertsManagement",
     "Microsoft.CognitiveServices",
 )
 
@@ -78,6 +84,24 @@ def _require_azure_cli() -> str:
         check=False,
     ).returncode:
         raise LifecycleError("Azure CLI is not signed in. Run `az login` first.")
+    result = _run([resolved_command, "version", "--output", "json"], capture=True)
+    try:
+        payload = json.loads(result.stdout)
+        version_text = str(payload["azure-cli"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise LifecycleError("Azure CLI returned an invalid version response.") from exc
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version_text)
+    if match is None:
+        raise LifecycleError(
+            f"Azure CLI returned an unsupported version value: {version_text!r}."
+        )
+    version = tuple(int(part) for part in match.groups())
+    if version < MINIMUM_AZURE_CLI_VERSION:
+        required = ".".join(str(part) for part in MINIMUM_AZURE_CLI_VERSION)
+        raise LifecycleError(
+            f"Azure CLI {required} or newer is required for Flex Consumption; "
+            f"found {version_text}. Upgrade Azure CLI and retry."
+        )
     return resolved_command
 
 
@@ -207,8 +231,131 @@ def _recover_existing_values(
 
 def _register_providers(az: str) -> None:
     for namespace in PROVIDERS:
-        print(f"Ensuring provider is registered: {namespace}")
+        state = _run(
+            [
+                az,
+                "provider",
+                "show",
+                "--namespace",
+                namespace,
+                "--query",
+                "registrationState",
+                "--output",
+                "tsv",
+            ],
+            capture=True,
+        ).stdout.strip()
+        if state.lower() == "registered":
+            print(f"Provider is already registered: {namespace}")
+            continue
+        print(f"Registering provider: {namespace}")
         _run([az, "provider", "register", "--namespace", namespace, "--wait"])
+        state = _run(
+            [
+                az,
+                "provider",
+                "show",
+                "--namespace",
+                namespace,
+                "--query",
+                "registrationState",
+                "--output",
+                "tsv",
+            ],
+            capture=True,
+        ).stdout.strip()
+        if state.lower() != "registered":
+            raise LifecycleError(
+                f"Provider {namespace} did not reach Registered state; "
+                f"current state: {state or 'unknown'}."
+            )
+
+
+def _validate_flex_location(az: str, location: str) -> None:
+    result = _run(
+        [
+            az,
+            "functionapp",
+            "list-flexconsumption-locations",
+            "--query",
+            "[].name",
+            "--output",
+            "json",
+        ],
+        capture=True,
+    )
+    try:
+        values = json.loads(result.stdout)
+    except ValueError as exc:
+        raise LifecycleError(
+            "Azure CLI returned invalid Flex Consumption location data."
+        ) from exc
+    supported = (
+        {
+            str(value).strip().lower()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        }
+        if isinstance(values, list)
+        else set()
+    )
+    if location.lower() not in supported:
+        raise LifecycleError(
+            f"Flex Consumption is not available in {location!r}. Run "
+            "`az functionapp list-flexconsumption-locations --output table` "
+            "and choose a supported --location."
+        )
+    print(f"Flex Consumption location is available: {location}")
+
+
+def _validate_foundry_model(az: str, location: str) -> None:
+    result = _run(
+        [
+            az,
+            "cognitiveservices",
+            "model",
+            "list",
+            "--location",
+            location,
+            "--output",
+            "json",
+        ],
+        capture=True,
+    )
+    try:
+        values = json.loads(result.stdout)
+    except ValueError as exc:
+        raise LifecycleError("Azure CLI returned invalid Foundry model data.") from exc
+    if not isinstance(values, list):
+        raise LifecycleError("Azure CLI returned invalid Foundry model data.")
+
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        model = value.get("model")
+        if not isinstance(model, dict):
+            continue
+        if (
+            model.get("name") != FOUNDRY_MODEL_NAME
+            or model.get("version") != FOUNDRY_MODEL_VERSION
+        ):
+            continue
+        skus = model.get("skus")
+        if isinstance(skus, list) and any(
+            isinstance(sku, dict) and sku.get("name") == FOUNDRY_DEPLOYMENT_SKU
+            for sku in skus
+        ):
+            print(
+                "Foundry model is available: "
+                f"{FOUNDRY_MODEL_NAME} {FOUNDRY_MODEL_VERSION} "
+                f"({FOUNDRY_DEPLOYMENT_SKU}) in {location}"
+            )
+            return
+    raise LifecycleError(
+        f"{FOUNDRY_MODEL_NAME} {FOUNDRY_MODEL_VERSION} with "
+        f"{FOUNDRY_DEPLOYMENT_SKU} is not available in {location!r}. "
+        "Choose a supported --foundry-location."
+    )
 
 
 def _deployment_outputs(
@@ -237,6 +384,9 @@ def _deployment_outputs(
         f"location={location}",
         f"foundryLocation={foundry_location}",
         f"deviceGuid={device_guid}",
+        f"foundryDeploymentName={FOUNDRY_DEPLOYMENT_NAME}",
+        f"foundryModelName={FOUNDRY_MODEL_NAME}",
+        f"foundryModelVersion={FOUNDRY_MODEL_VERSION}",
         "--query",
         "properties.outputs",
         "--output",
@@ -434,6 +584,8 @@ def install_backend(args: argparse.Namespace) -> None:
     _save_state(args.environment_name, state)
 
     _register_providers(az)
+    _validate_flex_location(az, args.location)
+    _validate_foundry_model(az, args.foundry_location)
     print(
         f"Creating/updating Azure services in {args.location}; "
         f"Foundry model region: {args.foundry_location}."

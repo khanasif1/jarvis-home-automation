@@ -3,7 +3,7 @@
 `main.bicep` creates exactly these services:
 
 - Linux Flex Consumption Function App, Python 3.11
-- one always-ready HTTP instance and maximum scale-out of five
+- one always-ready HTTP instance and maximum scale-out of 40
 - system-assigned managed identity
 - Functions host/deployment Storage account
 - Microsoft Foundry `AIServices` resource with one `gpt-realtime-2` deployment
@@ -32,7 +32,9 @@ python3 infra/scripts/backend_lifecycle.py install \
 ```
 
 Default regions are `australiaeast` for the Function and `southindia` for
-Foundry. Pass `--location` and `--foundry-location` to override them.
+Foundry. Pass `--location` and `--foundry-location` to override them. Install
+registers the monitoring alert dependency and validates both regions plus the
+configured model before creating or updating resources.
 
 Delete every Azure service in the environment:
 

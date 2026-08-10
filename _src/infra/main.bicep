@@ -42,9 +42,9 @@ param foundryDeploymentCapacity int = 1
 param foundryVoice string = 'alloy'
 
 @description('Maximum Flex Consumption scale-out.')
-@minValue(1)
+@minValue(40)
 @maxValue(1000)
-param functionMaximumInstanceCount int = 5
+param functionMaximumInstanceCount int = 40
 
 @description('Memory allocated to each Flex Consumption instance.')
 @allowed([
