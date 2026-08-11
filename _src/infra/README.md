@@ -36,6 +36,20 @@ Foundry. Pass `--location` and `--foundry-location` to override them. Install
 registers the monitoring alert dependency and validates both regions plus the
 configured model before creating or updating resources.
 
+If Azure reports `FlagMustBeSetForRestore`, a prior Foundry account with the
+same name is soft-deleted. If that account is no longer needed, permanently
+purge it, then rerun install:
+
+```bash
+az cognitiveservices account purge \
+  --name YOUR-SOFT-DELETED-FOUNDRY-NAME \
+  --resource-group rg-home-jarvis \
+  --location southindia
+```
+
+Purge cannot be undone. Use the account name, resource group, and location from
+the Azure error; see the root README for PowerShell syntax.
+
 Delete every Azure service in the environment:
 
 ```bash

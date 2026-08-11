@@ -125,6 +125,36 @@ section 1. They are preserved in
 `~/.jarvis-home-automation/home.json`, so rerunning install keeps the same Pi
 identity.
 
+### If Azure reports `FlagMustBeSetForRestore`
+
+Foundry account names remain reserved after deletion because Cognitive Services
+uses soft delete. If an earlier or partially failed deployment deleted the
+account but retained the same name, Azure reports
+`FlagMustBeSetForRestore`.
+
+If you do **not** need to restore that deleted account, permanently purge it
+using the account name, resource group, and location shown in the error.
+**Purge cannot be undone.**
+
+```bash
+az cognitiveservices account purge \
+  --name "YOUR-SOFT-DELETED-FOUNDRY-NAME" \
+  --resource-group "rg-home-jarvis" \
+  --location "southindia"
+```
+
+PowerShell:
+
+```powershell
+az cognitiveservices account purge `
+  --name "YOUR-SOFT-DELETED-FOUNDRY-NAME" `
+  --resource-group "rg-home-jarvis" `
+  --location "southindia"
+```
+
+After the purge completes, rerun the same install command. The installer is
+idempotent and reuses the environment's Device GUID and resource-name seed.
+
 ## 4. UnInstall backend from azure
 
 This deletes the resource group and therefore the Function, Foundry deployment,
