@@ -69,6 +69,7 @@ var suffix = uniqueString(subscription().id, resourceNameSeed)
 var baseName = 'jarvis-${environmentName}-${suffix}'
 var storageAccountName = 'st${suffix}'
 var foundryAccountName = 'foundry-${environmentName}-${suffix}'
+var infrastructureSchemaVersion = 'private-storage-v1'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
@@ -167,6 +168,7 @@ output foundryAccountName string = foundry.outputs.foundryAccountName
 output foundryEndpoint string = foundry.outputs.foundryEndpoint
 output foundryDeploymentName string = foundry.outputs.deploymentName
 output functionAppPrincipalId string = functionApp.outputs.functionAppPrincipalId
+output infrastructureSchemaVersion string = infrastructureSchemaVersion
 output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_BACKEND_NAME string = functionApp.outputs.functionAppName
 output RESOURCE_NAME_SEED string = resourceNameSeed

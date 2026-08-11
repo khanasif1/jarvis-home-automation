@@ -90,7 +90,9 @@ assignments. No Azure Developer CLI or GitHub Actions are used.
 From a clone of this repository:
 
 ```bash
+git pull --ff-only origin main
 cd _src
+python3 infra/scripts/backend_lifecycle.py --version
 az login
 az account set --subscription "YOUR-SUBSCRIPTION-ID"
 
@@ -102,7 +104,9 @@ python3 infra/scripts/backend_lifecycle.py install \
 PowerShell:
 
 ```powershell
+git pull --ff-only origin main
 Set-Location _src
+python infra\scripts\backend_lifecycle.py --version
 az login
 az account set --subscription "YOUR-SUBSCRIPTION-ID"
 
@@ -110,6 +114,10 @@ python infra\scripts\backend_lifecycle.py install `
   --environment-name home `
   --subscription-id "YOUR-SUBSCRIPTION-ID"
 ```
+
+The version command must report `2.1.0 (private-storage-v1)` or newer. If it
+does not recognize `--version`, the checkout predates private Storage support
+and must not be deployed.
 
 The command idempotently registers every required provider, including the
 Application Insights smart-alert and private-network dependencies; validates
@@ -156,6 +164,16 @@ az cognitiveservices account purge `
 
 After the purge completes, rerun the same install command. The installer is
 idempotent and reuses the environment's Device GUID and resource-name seed.
+
+### If zip deployment reports Storage HTTP 403
+
+The current installer deploys VNet integration, private endpoints, and private
+DNS, then verifies the integration, endpoints, and Storage RBAC before
+uploading code. A direct zip-deployment 403 with no private endpoints indicates
+that an older checkout was run. Return to the repository root, run
+`git pull --ff-only origin main`, confirm the installer version above, and rerun
+the same install command. Do not add Storage keys, enable shared-key
+authentication, or enable public Storage access.
 
 ## 4. UnInstall backend from azure
 

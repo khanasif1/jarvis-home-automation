@@ -27,13 +27,20 @@ Security controls are declarative:
 
 ## Lifecycle
 
-From `_src/`, install or update everything, including backend code:
+From the repository root, install or update everything, including backend code:
 
 ```bash
+git pull --ff-only origin main
+cd _src
+python3 infra/scripts/backend_lifecycle.py --version
 python3 infra/scripts/backend_lifecycle.py install \
   --environment-name home \
   --subscription-id YOUR-SUBSCRIPTION-ID
 ```
+
+The version command must report `2.1.0 (private-storage-v1)` or newer; the
+installer also verifies that Azure deployed the matching infrastructure schema
+before it uploads backend code.
 
 Default regions are `australiaeast` for the Function and `southindia` for
 Foundry. Pass `--location` and `--foundry-location` to override them. Install

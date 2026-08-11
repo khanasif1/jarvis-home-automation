@@ -255,6 +255,8 @@ Azure install must:
 - Validate the selected Flex Consumption region and configured Foundry model,
   version, and deployment SKU before provisioning.
 - Use one cross-platform Python lifecycle command; do not require azd.
+- Expose an installer version and verify a versioned Bicep schema output before
+  uploading backend code so a stale template cannot proceed silently.
 - Generate one UUID with `uuid.uuid4()` only when the environment has none.
 - Preserve that UUID in restricted local lifecycle state and recover it from an
   existing Function App when local state is unavailable.

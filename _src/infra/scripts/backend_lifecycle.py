@@ -27,6 +27,8 @@ BACKEND_ROOT = SOURCE_ROOT / "azure-backend"
 STATE_ROOT = Path.home() / ".jarvis-home-automation"
 ENVIRONMENT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,14}[a-z0-9]$")
 MINIMUM_AZURE_CLI_VERSION = (2, 60, 0)
+INSTALLER_VERSION = "2.1.0"
+INFRASTRUCTURE_SCHEMA_VERSION = "private-storage-v1"
 FOUNDRY_DEPLOYMENT_NAME = "gpt-realtime-2"
 FOUNDRY_MODEL_NAME = "gpt-realtime-2"
 FOUNDRY_MODEL_VERSION = "2026-05-06"
@@ -414,9 +416,26 @@ def _deployment_outputs(
     )
     try:
         raw = json.loads(result.stdout)
-        return {name: str(item["value"]) for name, item in raw.items()}
+        if not isinstance(raw, dict):
+            raise TypeError
+        outputs = {
+            name: str(item["value"])
+            for name, item in raw.items()
+            if isinstance(name, str) and isinstance(item, dict)
+        }
+        if len(outputs) != len(raw):
+            raise TypeError
     except (KeyError, TypeError, ValueError) as exc:
         raise LifecycleError("Azure deployment returned invalid outputs.") from exc
+    deployed_schema = outputs.get("infrastructureSchemaVersion", "")
+    if deployed_schema != INFRASTRUCTURE_SCHEMA_VERSION:
+        raise LifecycleError(
+            "Azure deployed an unexpected infrastructure schema "
+            f"{deployed_schema or '<missing>'!r}; expected "
+            f"{INFRASTRUCTURE_SCHEMA_VERSION!r}. Pull the latest main branch "
+            "and rerun install before deploying backend code."
+        )
+    return outputs
 
 
 def _create_backend_zip(destination: Path) -> None:
@@ -743,6 +762,10 @@ def _purge_foundry_account(
 
 def install_backend(args: argparse.Namespace) -> None:
     _validate_environment(args.environment_name)
+    print(
+        f"Jarvis backend installer {INSTALLER_VERSION} "
+        f"({INFRASTRUCTURE_SCHEMA_VERSION})"
+    )
     az = _require_azure_cli()
     subscription_id = _select_subscription(az, args.subscription_id)
     resource_group = f"rg-{args.environment_name}-jarvis"
@@ -874,6 +897,11 @@ def uninstall_backend(args: argparse.Namespace) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Install or uninstall the complete Jarvis Azure backend."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {INSTALLER_VERSION} ({INFRASTRUCTURE_SCHEMA_VERSION})",
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
