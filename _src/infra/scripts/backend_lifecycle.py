@@ -31,9 +31,24 @@ FOUNDRY_DEPLOYMENT_NAME = "gpt-realtime-2"
 FOUNDRY_MODEL_NAME = "gpt-realtime-2"
 FOUNDRY_MODEL_VERSION = "2026-05-06"
 FOUNDRY_DEPLOYMENT_SKU = "GlobalStandard"
+STORAGE_BLOB_DATA_OWNER_ROLE_ID = "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+STORAGE_QUEUE_DATA_CONTRIBUTOR_ROLE_ID = "974c5e8b-45b9-4653-ba55-5f855dd0fb88"
+STORAGE_TABLE_DATA_CONTRIBUTOR_ROLE_ID = "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
+REQUIRED_STORAGE_ROLE_IDS = frozenset(
+    {
+        STORAGE_BLOB_DATA_OWNER_ROLE_ID,
+        STORAGE_QUEUE_DATA_CONTRIBUTOR_ROLE_ID,
+        STORAGE_TABLE_DATA_CONTRIBUTOR_ROLE_ID,
+    }
+)
+REQUIRED_STORAGE_PRIVATE_ENDPOINTS = frozenset({"blob", "queue", "table"})
+DEPLOYMENT_RETRY_ATTEMPTS = 41
+DEPLOYMENT_RETRY_SECONDS = 15
 PROVIDERS = (
     "Microsoft.Storage",
     "Microsoft.Web",
+    "Microsoft.Network",
+    "Microsoft.App",
     "Microsoft.OperationalInsights",
     "Microsoft.Insights",
     "Microsoft.AlertsManagement",
@@ -419,6 +434,180 @@ def _create_backend_zip(destination: Path) -> None:
             archive.write(path, relative.as_posix())
 
 
+def _load_command_json(command: Sequence[str], description: str) -> Any:
+    result = _run(command, capture=True)
+    try:
+        return json.loads(result.stdout)
+    except ValueError as exc:
+        raise LifecycleError(f"Azure CLI returned invalid {description} JSON.") from exc
+
+
+def _deployment_storage_issues(
+    az: str,
+    resource_group: str,
+    function_name: str,
+    storage_account_name: str,
+) -> list[str]:
+    function = _load_command_json(
+        [
+            az,
+            "resource",
+            "show",
+            "--resource-group",
+            resource_group,
+            "--name",
+            function_name,
+            "--resource-type",
+            "Microsoft.Web/sites",
+            "--api-version",
+            "2024-04-01",
+            "--output",
+            "json",
+        ],
+        "Function App",
+    )
+    storage = _load_command_json(
+        [
+            az,
+            "storage",
+            "account",
+            "show",
+            "--resource-group",
+            resource_group,
+            "--name",
+            storage_account_name,
+            "--output",
+            "json",
+        ],
+        "Storage account",
+    )
+    storage_id = str(storage.get("id") or "")
+    principal_id = str(function.get("identity", {}).get("principalId") or "")
+    deployment = (
+        function.get("properties", {})
+        .get("functionAppConfig", {})
+        .get("deployment", {})
+        .get("storage", {})
+    )
+    authentication_type = str(
+        deployment.get("authentication", {}).get("type") or ""
+    )
+    virtual_network_subnet_id = str(
+        function.get("properties", {}).get("virtualNetworkSubnetId") or ""
+    )
+
+    issues: list[str] = []
+    if not principal_id:
+        issues.append("Function system-assigned identity is unavailable")
+    if authentication_type != "SystemAssignedIdentity":
+        issues.append("deployment storage is not using the Function identity")
+    if not virtual_network_subnet_id:
+        issues.append("Function VNet integration is unavailable")
+    if str(storage.get("publicNetworkAccess", "")).lower() != "disabled":
+        issues.append("Storage public network access is not disabled")
+    if not storage_id:
+        issues.append("Storage resource ID is unavailable")
+        return issues
+
+    assignments = _load_command_json(
+        [
+            az,
+            "role",
+            "assignment",
+            "list",
+            "--scope",
+            storage_id,
+            "--include-inherited",
+            "--output",
+            "json",
+        ],
+        "role assignment",
+    )
+    assigned_role_ids = {
+        str(assignment.get("roleDefinitionId") or "").rsplit("/", 1)[-1].lower()
+        for assignment in assignments
+        if isinstance(assignment, dict)
+        and str(assignment.get("principalId") or "").lower() == principal_id.lower()
+    }
+    missing_roles = REQUIRED_STORAGE_ROLE_IDS - assigned_role_ids
+    if missing_roles:
+        issues.append(
+            "Function storage RBAC is incomplete: " + ", ".join(sorted(missing_roles))
+        )
+
+    private_endpoints = _load_command_json(
+        [
+            az,
+            "network",
+            "private-endpoint",
+            "list",
+            "--resource-group",
+            resource_group,
+            "--output",
+            "json",
+        ],
+        "private endpoint",
+    )
+    approved_groups: set[str] = set()
+    for endpoint in private_endpoints:
+        if not isinstance(endpoint, dict):
+            continue
+        for connection in endpoint.get("privateLinkServiceConnections", []):
+            if not isinstance(connection, dict):
+                continue
+            if (
+                str(connection.get("privateLinkServiceId") or "").lower()
+                != storage_id.lower()
+            ):
+                continue
+            status = str(
+                connection.get("privateLinkServiceConnectionState", {}).get(
+                    "status"
+                )
+                or ""
+            )
+            if status.lower() == "approved":
+                approved_groups.update(
+                    str(group).lower() for group in connection.get("groupIds", [])
+                )
+    missing_groups = REQUIRED_STORAGE_PRIVATE_ENDPOINTS - approved_groups
+    if missing_groups:
+        issues.append(
+            "Storage private endpoints are not approved: "
+            + ", ".join(sorted(missing_groups))
+        )
+    return issues
+
+
+def _wait_for_deployment_storage(
+    az: str,
+    resource_group: str,
+    function_name: str,
+    storage_account_name: str,
+) -> None:
+    last_issues: list[str] = []
+    for attempt in range(1, 61):
+        last_issues = _deployment_storage_issues(
+            az,
+            resource_group,
+            function_name,
+            storage_account_name,
+        )
+        if not last_issues:
+            print("Private deployment storage and Function RBAC are ready.")
+            return
+        if attempt == 1 or attempt % 6 == 0:
+            print(
+                "Waiting for private deployment storage: "
+                + "; ".join(last_issues)
+            )
+        time.sleep(5)
+    raise LifecycleError(
+        "Private deployment storage did not become ready: "
+        + "; ".join(last_issues)
+    )
+
+
 def _deploy_backend_code(
     az: str,
     resource_group: str,
@@ -447,17 +636,23 @@ def _deploy_backend_code(
             "none",
         ]
         last_detail = ""
-        for attempt in range(1, 13):
-            print(f"Deploying backend code (attempt {attempt}/12)...")
+        for attempt in range(1, DEPLOYMENT_RETRY_ATTEMPTS + 1):
+            print(
+                "Deploying backend code "
+                f"(attempt {attempt}/{DEPLOYMENT_RETRY_ATTEMPTS})..."
+            )
             result = _run(command, capture=True, check=False)
             if result.returncode == 0:
                 return
             last_detail = (result.stderr or result.stdout or "").strip()
-            if attempt < 12:
-                print("Deployment identity is not ready yet; retrying in 15 seconds.")
-                time.sleep(15)
+            if attempt < DEPLOYMENT_RETRY_ATTEMPTS:
+                print(
+                    "Deployment storage connectivity or RBAC is still "
+                    f"propagating; retrying in {DEPLOYMENT_RETRY_SECONDS} seconds."
+                )
+                time.sleep(DEPLOYMENT_RETRY_SECONDS)
         raise LifecycleError(
-            "Backend code deployment failed after RBAC propagation retries."
+            "Backend code deployment failed after private storage propagation retries."
             + (f"\n{last_detail}" if last_detail else "")
         )
 
@@ -600,9 +795,16 @@ def install_backend(args: argparse.Namespace) -> None:
     )
     function_name = outputs.get("functionAppName", "")
     api_base_url = outputs.get("apiBaseUrl", "")
-    if not function_name or not api_base_url:
+    storage_account_name = outputs.get("storageAccountName", "")
+    if not function_name or not api_base_url or not storage_account_name:
         raise LifecycleError("Deployment did not return the Function App outputs.")
 
+    _wait_for_deployment_storage(
+        az,
+        resource_group,
+        function_name,
+        storage_account_name,
+    )
     _deploy_backend_code(az, resource_group, function_name)
     if not args.skip_health_check:
         _wait_for_health(api_base_url)

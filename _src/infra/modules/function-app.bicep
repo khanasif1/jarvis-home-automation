@@ -20,6 +20,7 @@ param storageBlobEndpoint string
 param storageQueueEndpoint string
 param storageTableEndpoint string
 param deploymentContainerName string
+param virtualNetworkSubnetId string
 
 @secure()
 param appInsightsConnectionString string
@@ -59,6 +60,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     serverFarmId: hostingPlan.id
     httpsOnly: true
     clientAffinityEnabled: false
+    virtualNetworkSubnetId: virtualNetworkSubnetId
     functionAppConfig: {
       deployment: {
         storage: {

@@ -198,14 +198,20 @@ Write idempotent Bicep that provisions:
 - Maximum scale-out of 40, the Flex Consumption platform minimum.
 - Minimal StorageV2 account and deployment blob container required by the
   Functions host.
+- VNet with a `/27` subnet delegated to `Microsoft.App/environments` for Flex
+  integration and a separate private-endpoint subnet.
+- Blob, Queue, and Table Storage private endpoints, private DNS zones, and VNet
+  links.
 - Log Analytics workspace and Application Insights.
 - Foundry/Azure OpenAI resource plus the configured Realtime model deployment.
 - Required RBAC assignments.
 
 Security requirements:
 
-- Storage: `allowSharedKeyAccess: false`, no connection strings, no application
-  tables, no public blobs.
+- Storage: `allowSharedKeyAccess: false`, `publicNetworkAccess: Disabled`, no
+  connection strings, no application tables, and no public blobs.
+- Route Function host and deployment Storage traffic through VNet integration
+  and Blob/Queue/Table private endpoints; do not rely on Azure service bypass.
 - Function host storage settings use identity-based
   `AzureWebJobsStorage__*ServiceUri` values.
 - Foundry: `disableLocalAuth: true`.
@@ -244,14 +250,17 @@ Azure install must:
 - Check Azure CLI authentication and require Azure CLI 2.60.0 or newer.
 - Register every required resource provider, including
   `Microsoft.AlertsManagement` for policy-created Application Insights smart
-  detector alerts, and verify each provider reaches `Registered`.
+  detector alerts plus `Microsoft.Network` and `Microsoft.App` for private
+  Storage connectivity, and verify each provider reaches `Registered`.
 - Validate the selected Flex Consumption region and configured Foundry model,
   version, and deployment SKU before provisioning.
 - Use one cross-platform Python lifecycle command; do not require azd.
 - Generate one UUID with `uuid.uuid4()` only when the environment has none.
 - Preserve that UUID in restricted local lifecycle state and recover it from an
   existing Function App when local state is unavailable.
-- Provision/update resources, deploy the Function, and verify `/api/health`.
+- Provision/update resources; verify the Function identity, Storage RBAC, VNet
+  integration, and approved private endpoints; deploy the Function; and verify
+  `/api/health`.
 - Print the API URL and UUID needed by the Pi.
 - Accept separate `--location` and `--foundry-location` arguments.
 

@@ -6,6 +6,8 @@
 - one always-ready HTTP instance and maximum scale-out of 40
 - system-assigned managed identity
 - Functions host/deployment Storage account
+- VNet integration and Blob/Queue/Table Storage private endpoints with private
+  DNS
 - Microsoft Foundry `AIServices` resource with one `gpt-realtime-2` deployment
 - Application Insights and Log Analytics
 - data-plane RBAC for host Storage and Foundry
@@ -15,6 +17,8 @@ Security controls are declarative:
 - Foundry: `disableLocalAuth: true`
 - Storage: `allowSharedKeyAccess: false` and
   `defaultToOAuthAuthentication: true`
+- Storage public network access is disabled; Function host and deployment
+  traffic use private endpoints
 - Function: FTP/SCM basic publishing credentials disabled
 - Function-to-Foundry and Function-to-Storage access uses managed identity
 - Application Insights local authentication is disabled; telemetry uses Entra
@@ -34,7 +38,8 @@ python3 infra/scripts/backend_lifecycle.py install \
 Default regions are `australiaeast` for the Function and `southindia` for
 Foundry. Pass `--location` and `--foundry-location` to override them. Install
 registers the monitoring alert dependency and validates both regions plus the
-configured model before creating or updating resources.
+configured model before creating or updating resources. It also verifies the
+Function identity, private endpoints, and Storage RBAC before uploading code.
 
 If Azure reports `FlagMustBeSetForRestore`, a prior Foundry account with the
 same name is soft-deleted. If that account is no longer needed, permanently

@@ -70,6 +70,8 @@ WebSocket protocol.
 
 The Function runs on Flex Consumption with one always-ready HTTP instance to
 avoid normal cold-start latency. Its system-assigned identity accesses the
-Functions host Storage account and Foundry. Monitoring uses Application
-Insights and Log Analytics. There are no Google, Speech, Key Vault, or
-application-database resources.
+Functions host Storage account and Foundry. The Function is VNet-integrated;
+Blob, Queue, and Table Storage resolve through private endpoints and private
+DNS, while Storage public network access and shared-key access are disabled.
+Monitoring uses Application Insights and Log Analytics. There are no Google,
+Speech, Key Vault, or application-database resources.

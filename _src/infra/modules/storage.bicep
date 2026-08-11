@@ -1,4 +1,4 @@
-// Identity-only storage required by the Functions host and deployment service.
+// Identity-only private storage required by the Functions host and deployment service.
 
 param location string
 
@@ -25,10 +25,10 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
     defaultToOAuthAuthentication: true
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: 'Disabled'
     networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      bypass: 'None'
     }
   }
 }

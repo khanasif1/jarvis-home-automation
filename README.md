@@ -112,13 +112,15 @@ python infra\scripts\backend_lifecycle.py install `
 ```
 
 The command idempotently registers every required provider, including the
-Application Insights smart-alert dependency; validates the selected Flex
-Consumption region and Foundry model; creates the resource group, identity-only
-Storage account, Application Insights, Log Analytics, Microsoft Foundry
-resource/model, always-ready Flex Consumption Function, and RBAC; deploys the
-backend; and checks `/api/health`. Defaults are `australiaeast` for the Function
-and `southindia` for the current `gpt-realtime-2` availability. Override them
-with `--location` and `--foundry-location` if your approved regions differ.
+Application Insights smart-alert and private-network dependencies; validates
+the selected Flex Consumption region and Foundry model; creates the resource
+group, private identity-only Storage account, VNet and private endpoints,
+Application Insights, Log Analytics, Microsoft Foundry resource/model,
+always-ready Flex Consumption Function, and RBAC; waits for private storage
+connectivity; deploys the backend; and checks `/api/health`. Defaults are
+`australiaeast` for the Function and `southindia` for the current
+`gpt-realtime-2` availability. Override them with `--location` and
+`--foundry-location` if your approved regions differ.
 
 Copy the final **API base URL** and **Device GUID** into the Pi command in
 section 1. They are preserved in

@@ -99,6 +99,17 @@ module storage 'modules/storage.bicep' = {
   }
 }
 
+module networking 'modules/networking.bicep' = {
+  name: 'networking'
+  scope: rg
+  params: {
+    location: location
+    baseName: baseName
+    storageAccountName: storage.outputs.storageAccountName
+    tags: tags
+  }
+}
+
 module foundry 'modules/foundry.bicep' = {
   name: 'foundry'
   scope: rg
@@ -127,6 +138,7 @@ module functionApp 'modules/function-app.bicep' = {
     storageQueueEndpoint: storage.outputs.queueEndpoint
     storageTableEndpoint: storage.outputs.tableEndpoint
     deploymentContainerName: storage.outputs.deploymentContainerName
+    virtualNetworkSubnetId: networking.outputs.appSubnetId
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     deviceGuid: deviceGuid
     foundryEndpoint: foundry.outputs.foundryEndpoint
@@ -150,6 +162,7 @@ output resourceGroupName string = rg.name
 output functionAppName string = functionApp.outputs.functionAppName
 output apiBaseUrl string = functionApp.outputs.apiBaseUrl
 output storageAccountName string = storage.outputs.storageAccountName
+output virtualNetworkName string = networking.outputs.virtualNetworkName
 output foundryAccountName string = foundry.outputs.foundryAccountName
 output foundryEndpoint string = foundry.outputs.foundryEndpoint
 output foundryDeploymentName string = foundry.outputs.deploymentName
