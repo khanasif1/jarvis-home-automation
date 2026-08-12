@@ -35,7 +35,9 @@ HAP_LOG_LEVEL=INFO
 Only the API URL and GUID are required. `HAP_MAX_COMMAND_SECONDS` may be
 lowered but cannot exceed 30. A blank audio device uses a compatible PortAudio
 default or, when no default exists, the first compatible device. Use a numeric
-index from `home-assistant-pi devices` to override automatic selection.
+index from `sudo home-assistant-pi-service devices` to override automatic
+selection. The wrapper runs diagnostics as the configured desktop user with
+the same PipeWire environment as the systemd service.
 
 ## Commands
 
@@ -55,14 +57,14 @@ Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.1
+.\packaging\build-release.ps1 -Version 2.0.2
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.1
+./packaging/build-release.sh --version 2.0.2
 ```
 
-The published `home-assistant-pi-bundle-2.0.1.tar.gz` contains one wheel, three
+The published `home-assistant-pi-bundle-2.0.2.tar.gz` contains one wheel, three
 lifecycle scripts, configuration metadata, and an internal wheel checksum. It
 does not contain backend source, tests, recordings, or a virtual environment.

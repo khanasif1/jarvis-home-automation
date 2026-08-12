@@ -279,11 +279,17 @@ Pi install/uninstall must:
 - Be safe to rerun.
 - Install only production dependencies and the one supported wake-word path.
 - Require 64-bit Raspberry Pi OS.
+- Run as the selected non-root desktop user with that user's PipeWire runtime
+  environment; retain the runtime user for idempotent updates and enable linger
+  so the service can start before interactive login.
+- Clear persisted numeric PortAudio indexes when migrating between runtime
+  users because device indexes are session-specific.
 - Prefer a compatible configured/default PortAudio device and otherwise select
   the first device that supports the required mono PCM format; diagnostics must
   print the resolved microphone and speaker.
 - Treat any systemd restart during the post-install stability window as an
-  installation failure and print full service logs.
+  installation failure, stop the failed service, and print full service logs;
+  rate-limit later runtime failures so missing hardware cannot loop forever.
 - Preserve configuration unless uninstall uses `--purge-config`.
 - Never depend on repository source after installing a release bundle.
 
