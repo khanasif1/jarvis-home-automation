@@ -279,6 +279,11 @@ Pi install/uninstall must:
 - Be safe to rerun.
 - Install only production dependencies and the one supported wake-word path.
 - Require 64-bit Raspberry Pi OS.
+- Prefer a compatible configured/default PortAudio device and otherwise select
+  the first device that supports the required mono PCM format; diagnostics must
+  print the resolved microphone and speaker.
+- Treat any systemd restart during the post-install stability window as an
+  installation failure and print full service logs.
 - Preserve configuration unless uninstall uses `--purge-config`.
 - Never depend on repository source after installing a release bundle.
 

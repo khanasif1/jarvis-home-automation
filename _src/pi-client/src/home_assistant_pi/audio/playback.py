@@ -3,52 +3,50 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
 
+from .devices import (
+    AudioDevice as OutputDevice,
+    AudioDeviceError,
+    SelectedAudioDevice,
+    get_sounddevice,
+    list_audio_devices,
+    resolve_audio_device,
+)
 from .wav import PcmAudio
 
 
-class AudioDeviceError(RuntimeError):
-    """Raised when speaker hardware cannot be opened or written."""
-
-
-def _sounddevice():
-    try:
-        import sounddevice
-    except Exception as exc:
-        raise AudioDeviceError(f"sounddevice/PortAudio is unavailable: {exc}") from exc
-    return sounddevice
-
-
-@dataclass(frozen=True)
-class OutputDevice:
-    index: int
-    name: str
-
-
 def list_output_devices() -> list[OutputDevice]:
-    return [
-        OutputDevice(index=index, name=str(info.get("name", index)))
-        for index, info in enumerate(_sounddevice().query_devices())
-        if info.get("max_output_channels", 0) > 0
-    ]
+    return list_audio_devices("output")
+
+
+def resolve_output_device(
+    device: str | None = None,
+    sample_rate: int = 24_000,
+) -> SelectedAudioDevice:
+    return resolve_audio_device("output", device, sample_rate=sample_rate)
 
 
 class AudioPlayback:
     def __init__(self, device: str | None = None) -> None:
-        self.device = int(device) if device and device.isdigit() else device
+        self.device = device
+        self._selected_device: SelectedAudioDevice | None = None
 
     def play(self, audio: PcmAudio) -> None:
         self.play_stream([audio.frames], sample_rate=audio.sample_rate)
 
     def play_stream(self, chunks: Iterable[bytes], *, sample_rate: int) -> None:
-        sounddevice = _sounddevice()
+        sounddevice = get_sounddevice()
         try:
+            if self._selected_device is None:
+                self._selected_device = resolve_output_device(
+                    self.device,
+                    sample_rate,
+                )
             with sounddevice.RawOutputStream(
                 samplerate=sample_rate,
                 channels=1,
                 dtype="int16",
-                device=self.device,
+                device=self._selected_device.value,
             ) as stream:
                 pending = b""
                 for chunk in chunks:

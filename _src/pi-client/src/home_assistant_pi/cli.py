@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 
 from .api import ApiClient
-from .audio.capture import list_input_devices
-from .audio.playback import list_output_devices
+from .audio.capture import list_input_devices, resolve_input_device
+from .audio.playback import list_output_devices, resolve_output_device
 from .config import ConfigError, check_file_permissions, load_config
 from .main import run_forever
 from .version import get_version
@@ -109,6 +109,32 @@ def _doctor(config_path: Path) -> int:
         )
     except Exception as exc:
         checks.append(("audio devices", False, str(exc)))
+    try:
+        selected_input = resolve_input_device(
+            config.input_device if config is not None else None
+        )
+        checks.append(
+            (
+                "microphone selection",
+                True,
+                f"{selected_input.value}: {selected_input.name}",
+            )
+        )
+    except Exception as exc:
+        checks.append(("microphone selection", False, str(exc)))
+    try:
+        selected_output = resolve_output_device(
+            config.output_device if config is not None else None
+        )
+        checks.append(
+            (
+                "speaker selection",
+                True,
+                f"{selected_output.value}: {selected_output.name}",
+            )
+        )
+    except Exception as exc:
+        checks.append(("speaker selection", False, str(exc)))
 
     if config is not None:
         client = ApiClient(config.api_base_url, config.device_guid)

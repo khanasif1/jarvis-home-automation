@@ -23,20 +23,20 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.0.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.1.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.0.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.0/home-assistant-pi-bundle-2.0.0.tar.gz
+  --output home-assistant-pi-bundle-2.0.1.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.1/home-assistant-pi-bundle-2.0.1.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.0/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.1/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.0.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.1.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
@@ -49,17 +49,42 @@ same command to repair or update the installation.
 ```bash
 sudo systemctl status home-assistant-pi.service --no-pager
 sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
-sudo /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi doctor
+sudo -u homeassistantpi \
+  /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi doctor
 ```
 
-If PortAudio selects the wrong hardware, list devices and set
-`HAP_INPUT_DEVICE` / `HAP_OUTPUT_DEVICE` in
-`/etc/home-assistant-pi/config.env`:
+Version 2.0.1 automatically selects the first compatible 16 kHz microphone
+when PortAudio has no default input. If it selects the wrong hardware, list
+devices as the service account and set `HAP_INPUT_DEVICE` /
+`HAP_OUTPUT_DEVICE` in `/etc/home-assistant-pi/config.env`:
 
 ```bash
-sudo /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi devices
+sudo -u homeassistantpi /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi devices
 sudo nano /etc/home-assistant-pi/config.env
+sudo systemctl reset-failed home-assistant-pi.service
 sudo systemctl restart home-assistant-pi.service
+```
+
+Use the numeric input/output indexes printed by `devices`, for example
+`HAP_INPUT_DEVICE=1`. After restarting, confirm the service stays stable and
+test one complete voice turn:
+
+```bash
+sleep 15
+sudo systemctl show home-assistant-pi.service \
+  --property=ActiveState,SubState,NRestarts
+sudo -u homeassistantpi \
+  /opt/home-assistant-pi/current/.venv/bin/home-assistant-pi doctor
+sudo journalctl -u home-assistant-pi.service -n 50 --no-pager -l
+```
+
+Expected service values are `ActiveState=active`, `SubState=running`, and
+`NRestarts=0`. Say **“hey jarvis”**, wait for the activation sound, ask a short
+question, and confirm that spoken audio is returned. Follow live logs during
+that test with:
+
+```bash
+sudo journalctl -u home-assistant-pi.service -f -l
 ```
 
 ## 2. Un install application on Pi

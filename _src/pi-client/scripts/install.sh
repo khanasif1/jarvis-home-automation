@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.0"
+readonly DEFAULT_VERSION="2.0.1"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly CONFIG_FILE="${CONFIG_DIR}/config.env"
@@ -23,7 +23,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.0)
+  --version VERSION      Release version to install (default: 2.0.1)
   --help                 Show this help
 
 Re-running the command is safe. Existing API URL and device GUID are retained
@@ -260,11 +260,13 @@ chmod 0644 "${SERVICE_FILE}"
 chown -R root:root "${RELEASE_DIR}"
 systemctl daemon-reload
 systemctl enable "${APP_NAME}.service"
+systemctl reset-failed "${APP_NAME}.service" || true
 systemctl restart "${APP_NAME}.service"
-sleep 2
-if ! systemctl is-active --quiet "${APP_NAME}.service"; then
+sleep 10
+RESTART_COUNT="$(systemctl show "${APP_NAME}.service" --property=NRestarts --value)"
+if ! systemctl is-active --quiet "${APP_NAME}.service" || [[ "${RESTART_COUNT}" != "0" ]]; then
   journalctl --unit "${APP_NAME}.service" --lines 30 --no-pager >&2
-  echo "${APP_NAME} did not remain active after installation." >&2
+  echo "${APP_NAME} did not remain stable after installation (restarts: ${RESTART_COUNT})." >&2
   exit 1
 fi
 

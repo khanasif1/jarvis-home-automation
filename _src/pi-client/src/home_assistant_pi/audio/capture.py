@@ -3,51 +3,55 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+
+from .devices import (
+    AudioDevice as InputDevice,
+    AudioDeviceError,
+    SelectedAudioDevice,
+    get_sounddevice,
+    list_audio_devices,
+    resolve_audio_device,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class AudioDeviceError(RuntimeError):
-    """Raised when microphone hardware cannot be opened or read."""
-
-
-def _sounddevice():
-    try:
-        import sounddevice
-    except Exception as exc:
-        raise AudioDeviceError(f"sounddevice/PortAudio is unavailable: {exc}") from exc
-    return sounddevice
-
-
-@dataclass(frozen=True)
-class InputDevice:
-    index: int
-    name: str
-
-
 def list_input_devices() -> list[InputDevice]:
-    return [
-        InputDevice(index=index, name=str(info.get("name", index)))
-        for index, info in enumerate(_sounddevice().query_devices())
-        if info.get("max_input_channels", 0) > 0
-    ]
+    return list_audio_devices("input")
+
+
+def resolve_input_device(
+    device: str | None = None,
+    sample_rate: int = 16_000,
+) -> SelectedAudioDevice:
+    return resolve_audio_device("input", device, sample_rate=sample_rate)
 
 
 class AudioCapture:
     def __init__(self, device: str | None = None, sample_rate: int = 16_000) -> None:
-        self.device = int(device) if device and device.isdigit() else device
+        self.device = device
         self.sample_rate = sample_rate
+        self._selected_device: SelectedAudioDevice | None = None
 
     def stream_chunks(self, frame_length: int):
-        sounddevice = _sounddevice()
+        sounddevice = get_sounddevice()
         try:
+            if self._selected_device is None:
+                self._selected_device = resolve_input_device(
+                    self.device,
+                    self.sample_rate,
+                )
+                logger.info(
+                    "Using microphone device %s (%s)",
+                    self._selected_device.value,
+                    self._selected_device.name,
+                )
             with sounddevice.RawInputStream(
                 samplerate=self.sample_rate,
                 channels=1,
                 dtype="int16",
                 blocksize=frame_length,
-                device=self.device,
+                device=self._selected_device.value,
             ) as stream:
                 while True:
                     data, overflowed = stream.read(frame_length)
