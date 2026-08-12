@@ -11,7 +11,18 @@ paths:
   /api/health:
     get:
       operationId: getHealth
-      summary: Check Function availability
+      summary: Check Function availability and optionally Foundry Realtime readiness
+      parameters:
+        - name: deep
+          in: query
+          required: false
+          description: >
+            When true, X-Device-Guid is required and the Function verifies its
+            managed identity, Foundry RBAC, WebSocket handshake, and Realtime
+            session configuration.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,16 @@ paths:
                 properties:
                   status:
                     const: ok
+                  foundry:
+                    const: ready
+        "400":
+          $ref: "#/components/responses/InvalidAudio"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          $ref: "#/components/responses/FoundryError"
   /api/voice/stream:
     post:
       operationId: streamVoiceTurn

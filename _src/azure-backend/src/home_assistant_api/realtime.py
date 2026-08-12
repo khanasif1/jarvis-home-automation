@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from .config import AppConfig, OUTPUT_SAMPLE_RATE
 
 FOUNDRY_TOKEN_SCOPE = "https://ai.azure.com/.default"
+FOUNDRY_HANDSHAKE_TIMEOUT_SECONDS = 30.0
 logger = logging.getLogger(__name__)
 
 
@@ -37,43 +38,90 @@ class FoundryRealtimeSession:
             return
 
         try:
-            self._credential = (
-                ManagedIdentityCredential()
-                if self._config.use_managed_identity
-                else DefaultAzureCredential()
-            )
-            token = await self._credential.get_token(FOUNDRY_TOKEN_SCOPE)
-            self._client = AsyncOpenAI(
-                websocket_base_url=self._config.websocket_base_url,
-                api_key=token.token,
-            )
-            self._connection_manager = self._client.realtime.connect(
-                model=self._config.foundry_deployment
-            )
-            self._connection = await self._connection_manager.__aenter__()
-            await self._connection.session.update(
-                session={
-                    "type": "realtime",
-                    "instructions": self._config.system_instructions,
-                    "output_modalities": ["audio"],
-                    "audio": {
-                        "input": {
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": OUTPUT_SAMPLE_RATE,
+            async with asyncio.timeout(FOUNDRY_HANDSHAKE_TIMEOUT_SECONDS):
+                self._credential = (
+                    ManagedIdentityCredential()
+                    if self._config.use_managed_identity
+                    else DefaultAzureCredential()
+                )
+                token = await self._credential.get_token(FOUNDRY_TOKEN_SCOPE)
+                self._client = AsyncOpenAI(
+                    websocket_base_url=self._config.websocket_base_url,
+                    api_key=token.token,
+                )
+                self._connection_manager = self._client.realtime.connect(
+                    model=self._config.foundry_deployment
+                )
+                self._connection = await self._connection_manager.__aenter__()
+                received_session_created = False
+                async for event in self._connection:
+                    event_type = getattr(event, "type", "")
+                    if event_type == "session.created":
+                        received_session_created = True
+                        break
+                    if event_type == "error":
+                        error = getattr(event, "error", None)
+                        message = getattr(
+                            error, "message", "Unknown Realtime API error"
+                        )
+                        raise FoundryRealtimeError(str(message))
+                if not received_session_created:
+                    raise FoundryRealtimeError(
+                        "Foundry closed the connection before creating the session."
+                    )
+                await self._connection.session.update(
+                    session={
+                        "type": "realtime",
+                        "instructions": self._config.system_instructions,
+                        "output_modalities": ["audio"],
+                        "audio": {
+                            "input": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": OUTPUT_SAMPLE_RATE,
+                                },
+                                "turn_detection": None,
                             },
-                            "turn_detection": None,
-                        },
-                        "output": {
-                            "voice": self._config.foundry_voice,
-                            "format": {
-                                "type": "audio/pcm",
-                                "rate": OUTPUT_SAMPLE_RATE,
+                            "output": {
+                                "voice": self._config.foundry_voice,
+                                "format": {
+                                    "type": "audio/pcm",
+                                    "rate": OUTPUT_SAMPLE_RATE,
+                                },
                             },
                         },
-                    },
-                }
-            )
+                    }
+                )
+                received_session_updated = False
+                async for event in self._connection:
+                    event_type = getattr(event, "type", "")
+                    if event_type == "session.updated":
+                        received_session_updated = True
+                        break
+                    if event_type == "error":
+                        error = getattr(event, "error", None)
+                        message = getattr(
+                            error, "message", "Unknown Realtime API error"
+                        )
+                        raise FoundryRealtimeError(str(message))
+                if not received_session_updated:
+                    raise FoundryRealtimeError(
+                        "Foundry closed the connection before confirming the session."
+                    )
+        except FoundryRealtimeError:
+            try:
+                await self.close()
+            except Exception:
+                logger.exception("Realtime cleanup also failed while opening the session")
+            raise
+        except TimeoutError as exc:
+            try:
+                await self.close()
+            except Exception:
+                logger.exception("Realtime cleanup also failed after handshake timeout")
+            raise FoundryRealtimeError(
+                "Timed out while configuring the Foundry Realtime session."
+            ) from exc
         except Exception as exc:
             try:
                 await self.close()

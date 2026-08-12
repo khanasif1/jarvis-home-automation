@@ -38,7 +38,7 @@ python3 infra/scripts/backend_lifecycle.py install \
   --subscription-id YOUR-SUBSCRIPTION-ID
 ```
 
-The version command must report `2.1.0 (private-storage-v1)` or newer; the
+The version command must report `2.2.0 (private-storage-v1)` or newer; the
 installer also verifies that Azure deployed the matching infrastructure schema
 before it uploads backend code.
 
@@ -47,6 +47,8 @@ Foundry. Pass `--location` and `--foundry-location` to override them. Install
 registers the monitoring alert dependency and validates both regions plus the
 configured model before creating or updating resources. It also verifies the
 Function identity, private endpoints, and Storage RBAC before uploading code.
+After deployment it performs both the basic Function health probe and an
+authenticated Foundry Realtime handshake using the Function managed identity.
 
 If Azure reports `FlagMustBeSetForRestore`, a prior Foundry account with the
 same name is soft-deleted. If that account is no longer needed, permanently

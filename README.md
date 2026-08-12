@@ -151,7 +151,7 @@ python infra\scripts\backend_lifecycle.py install `
   --subscription-id "YOUR-SUBSCRIPTION-ID"
 ```
 
-The version command must report `2.1.0 (private-storage-v1)` or newer. If it
+The version command must report `2.2.0 (private-storage-v1)` or newer. If it
 does not recognize `--version`, the checkout predates private Storage support
 and must not be deployed.
 
@@ -161,7 +161,9 @@ the selected Flex Consumption region and Foundry model; creates the resource
 group, private identity-only Storage account, VNet and private endpoints,
 Application Insights, Log Analytics, Microsoft Foundry resource/model,
 always-ready Flex Consumption Function, and RBAC; waits for private storage
-connectivity; deploys the backend; and checks `/api/health`. Defaults are
+connectivity; deploys the backend; checks `/api/health`; and opens an
+authenticated Foundry Realtime session to verify the async identity transport,
+managed-identity RBAC, WebSocket handshake, and session configuration. Defaults are
 `australiaeast` for the Function and `southindia` for the current
 `gpt-realtime-2` availability. Override them with `--location` and
 `--foundry-location` if your approved regions differ.

@@ -27,7 +27,7 @@ BACKEND_ROOT = SOURCE_ROOT / "azure-backend"
 STATE_ROOT = Path.home() / ".jarvis-home-automation"
 ENVIRONMENT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,14}[a-z0-9]$")
 MINIMUM_AZURE_CLI_VERSION = (2, 60, 0)
-INSTALLER_VERSION = "2.1.0"
+INSTALLER_VERSION = "2.2.0"
 INFRASTRUCTURE_SCHEMA_VERSION = "private-storage-v1"
 FOUNDRY_DEPLOYMENT_NAME = "gpt-realtime-2"
 FOUNDRY_MODEL_NAME = "gpt-realtime-2"
@@ -676,23 +676,71 @@ def _deploy_backend_code(
         )
 
 
-def _wait_for_health(api_base_url: str) -> None:
+def _response_error_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return str(exc)
+    if not isinstance(payload, dict):
+        return f"HTTP {exc.code}: {payload!r}"
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return f"HTTP {exc.code}: {payload!r}"
+    code = str(error.get("code") or "unknown_error")
+    message = str(error.get("message") or "No error message was returned.")
+    return f"HTTP {exc.code} {code}: {message}"
+
+
+def _wait_for_health(api_base_url: str, device_guid: str) -> None:
     health_url = f"{api_base_url.rstrip('/')}/health"
     last_error = ""
+    health_ready = False
     for _ in range(60):
         try:
             with urllib.request.urlopen(health_url, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 if response.status == 200 and payload == {"status": "ok"}:
                     print(f"Backend health check passed: {health_url}")
-                    return
+                    health_ready = True
+                    break
                 last_error = f"HTTP {response.status}: {payload!r}"
         except (OSError, ValueError, urllib.error.URLError) as exc:
             last_error = str(exc)
         time.sleep(5)
+    if not health_ready:
+        raise LifecycleError(
+            f"Backend did not become healthy at {health_url}: "
+            f"{last_error or 'no response'}"
+        )
+
+    deep_health_url = f"{health_url}?deep=true"
+    request = urllib.request.Request(
+        deep_health_url,
+        headers={"X-Device-Guid": device_guid},
+    )
+    last_error = ""
+    for _ in range(24):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if response.status == 200 and payload == {
+                    "status": "ok",
+                    "foundry": "ready",
+                }:
+                    print(
+                        "Managed identity and Foundry Realtime check passed: "
+                        f"{deep_health_url}"
+                    )
+                    return
+                last_error = f"HTTP {response.status}: {payload!r}"
+        except urllib.error.HTTPError as exc:
+            last_error = _response_error_detail(exc)
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            last_error = str(exc)
+        time.sleep(5)
     raise LifecycleError(
-        f"Backend did not become healthy at {health_url}: "
-        f"{last_error or 'no response'}"
+        "Backend could not open a Foundry Realtime session at "
+        f"{deep_health_url}: {last_error or 'no response'}"
     )
 
 
@@ -830,7 +878,7 @@ def install_backend(args: argparse.Namespace) -> None:
     )
     _deploy_backend_code(az, resource_group, function_name)
     if not args.skip_health_check:
-        _wait_for_health(api_base_url)
+        _wait_for_health(api_base_url, device_guid)
     state.update(
         {
             "function_app_name": function_name,

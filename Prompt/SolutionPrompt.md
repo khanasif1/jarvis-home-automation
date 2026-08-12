@@ -293,6 +293,13 @@ Pi install/uninstall must:
 - Preserve configuration unless uninstall uses `--purge-config`.
 - Never depend on repository source after installing a release bundle.
 
+Backend deployment must verify more than process availability: after the basic
+health probe it must use the configured device identity to open, configure, and
+close a Foundry Realtime WebSocket with the Function managed identity. The
+Python runtime dependencies must include the async Azure Identity HTTP transport
+(`aiohttp`) explicitly because it is not installed transitively by
+`azure-identity`.
+
 ## 9. Repository cleanup
 
 Delete every committed:

@@ -4,7 +4,7 @@ This Python 3.11 Azure Function has two anonymous HTTP routes:
 
 | Route | Purpose |
 |---|---|
-| `GET /api/health` | Deployment health probe |
+| `GET /api/health` | Function health probe; `?deep=true` also verifies managed identity and the Foundry Realtime handshake |
 | `POST /api/voice/stream` | Authenticate the fixed Pi UUID, consume 16 kHz PCM, and stream 24 kHz response PCM |
 
 “Anonymous” is the Azure Functions auth level only. The voice route requires
@@ -22,6 +22,9 @@ Azure authentication uses only the Function system-assigned managed identity:
 - role: `Cognitive Services OpenAI User`
 - no model API key
 - identity-based `AzureWebJobsStorage`
+
+The async managed-identity client requires `aiohttp`; it is an explicit runtime
+dependency so a remote Functions build cannot omit the Azure async transport.
 
 ## Required settings
 

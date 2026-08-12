@@ -81,8 +81,46 @@ def _validate_audio_headers(request: Request) -> None:
             raise VoiceRequestError(f"{name} header must be {value}.")
 
 
-async def health(_request: Request) -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+async def health(
+    request: Request,
+    *,
+    config_loader: Callable[[], AppConfig] = AppConfig.from_environment,
+    session_factory: Callable[[AppConfig], FoundryRealtimeSession] = FoundryRealtimeSession,
+) -> JSONResponse:
+    deep_value = request.query_params.get("deep", "").strip().lower()
+    if deep_value not in {"", "0", "false", "1", "true"}:
+        return _json_error(400, "invalid_health_check", "deep must be true or false.")
+    if deep_value in {"", "0", "false"}:
+        return JSONResponse({"status": "ok"})
+
+    session: FoundryRealtimeSession | None = None
+    response: JSONResponse
+    try:
+        config = config_loader()
+        authenticate_device(request.headers.get("x-device-guid"), config.device_guid)
+        session = session_factory(config)
+        await session.open()
+        response = JSONResponse({"status": "ok", "foundry": "ready"})
+    except DeviceAuthenticationError as exc:
+        response = _json_error(401, "unauthorized_device", str(exc))
+    except ConfigurationError as exc:
+        logger.exception("Deep health check configuration failed")
+        response = _json_error(500, "configuration_error", str(exc))
+    except FoundryRealtimeError as exc:
+        logger.exception("Deep health check could not open Foundry Realtime")
+        response = _json_error(502, "foundry_error", str(exc))
+    except Exception:
+        logger.exception("Unexpected deep health check failure")
+        response = _json_error(500, "internal_error", "The deep health check failed.")
+
+    if session is not None and not await _close_session(session):
+        if response.status_code == 200:
+            return _json_error(
+                502,
+                "foundry_cleanup_error",
+                "The Foundry Realtime session could not be released.",
+            )
+    return response
 
 
 async def _prepare_stream(
@@ -128,11 +166,13 @@ def _response_stream(
     return generate()
 
 
-async def _close_session(session: FoundryRealtimeSession) -> None:
+async def _close_session(session: FoundryRealtimeSession) -> bool:
     try:
         await session.close()
     except Exception:
         logger.exception("Could not completely release the Foundry Realtime session")
+        return False
+    return True
 
 
 async def voice_stream(
