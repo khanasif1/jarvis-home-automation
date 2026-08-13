@@ -23,20 +23,20 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.2.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.3.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.2.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.2/home-assistant-pi-bundle-2.0.2.tar.gz
+  --output home-assistant-pi-bundle-2.0.3.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.3/home-assistant-pi-bundle-2.0.3.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.2/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.3/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.2.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.3.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.2 \
+  --version 2.0.3 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
@@ -50,7 +50,7 @@ To upgrade an existing installation while explicitly selecting desktop user
 `pi`, download/extract the current bundle as above, then run:
 
 ```bash
-sudo ./update.sh --version 2.0.2 --runtime-user pi
+sudo ./update.sh --version 2.0.3 --runtime-user pi
 ```
 
 This preserves the API URL and Device GUID. When migrating from release 2.0.1,
@@ -63,7 +63,7 @@ sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
 sudo home-assistant-pi-service doctor
 ```
 
-Version 2.0.2 runs in the invoking desktop user's PipeWire audio session and
+Version 2.0.3 runs in the invoking desktop user's PipeWire audio session and
 automatically selects compatible defaults. Use `--runtime-user USER` when the
 installer is invoked by a different administrator. If it selects the wrong
 hardware, list devices in the service's exact environment and set
@@ -94,8 +94,31 @@ Expected service values are `ActiveState=active`, `SubState=running`, and
 question, and confirm that spoken audio is returned. Follow live logs during
 that test with:
 
+Version 2.0.3 emits one correlated `activity` line at every live input/output
+stage. To start with an empty view and monitor only new interaction activity:
+
 ```bash
-sudo journalctl -u home-assistant-pi.service -f -l
+sudo journalctl \
+  --unit home-assistant-pi.service \
+  --follow \
+  --lines 0 \
+  --output cat |
+  grep --line-buffered 'activity'
+```
+
+The output updates immediately for wake detection, input speech start/end,
+backend response, output playback start/end, completion, cancellation, and
+failure. Each line includes the application timestamp and a `turn=` identifier.
+Raw audio, spoken text, the Device GUID, and credentials are never logged.
+
+To include startup, device, warning, and traceback messages too:
+
+```bash
+sudo journalctl \
+  --unit home-assistant-pi.service \
+  --follow \
+  --lines 0 \
+  --output short-iso-precise
 ```
 
 ## 2. Un install application on Pi

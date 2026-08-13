@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.3
+
+- Emit correlated `activity` events for wake detection, input capture and
+  speech boundaries, backend response, output playback, completion, and errors.
+- Include safe byte/duration metadata without recording audio, prompts,
+  responses, the device GUID, or other credentials.
+- Send unbuffered service output explicitly to the systemd journal for reliable
+  real-time monitoring.
+
 ## 2.0.2
 
 - Run the systemd service in the installing desktop user's PipeWire session so

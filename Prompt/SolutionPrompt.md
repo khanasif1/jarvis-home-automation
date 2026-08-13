@@ -290,6 +290,10 @@ Pi install/uninstall must:
 - Treat any systemd restart during the post-install stability window as an
   installation failure, stop the failed service, and print full service logs;
   rate-limit later runtime failures so missing hardware cannot loop forever.
+- Emit timestamped, correlated journal activity for wake detection, command
+  speech start/end, backend response, playback start/end, success, and failure.
+  Log only event names plus safe byte/duration metadata; never record raw audio,
+  prompt/response content, the device GUID, or credentials.
 - Preserve configuration unless uninstall uses `--purge-config`.
 - Never depend on repository source after installing a release bundle.
 

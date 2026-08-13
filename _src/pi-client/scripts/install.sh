@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.2"
+readonly DEFAULT_VERSION="2.0.3"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly CONFIG_FILE="${CONFIG_DIR}/config.env"
@@ -27,7 +27,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.2)
+  --version VERSION      Release version to install (default: 2.0.3)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 
@@ -495,8 +495,11 @@ Environment="HOME=${RUNTIME_HOME}"
 Environment="XDG_RUNTIME_DIR=/run/user/${RUNTIME_UID}"
 Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${RUNTIME_UID}/bus"
 Environment="PULSE_SERVER=unix:/run/user/${RUNTIME_UID}/pulse/native"
+Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=${CONFIG_FILE}
 ExecStart=${INSTALL_ROOT}/current/.venv/bin/home-assistant-pi run
+StandardOutput=journal
+StandardError=journal
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

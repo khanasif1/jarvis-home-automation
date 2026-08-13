@@ -51,20 +51,39 @@ home-assistant-pi print-effective-config
 
 The effective configuration command always redacts the Device GUID.
 
+## Live activity
+
+Release 2.0.3 writes unbuffered, correlated activity events directly to the
+systemd journal. Monitor only new input/output activity in real time:
+
+```bash
+sudo journalctl \
+  --unit home-assistant-pi.service \
+  --follow \
+  --lines 0 \
+  --output cat |
+  grep --line-buffered 'activity'
+```
+
+Each turn logs wake detection, command speech boundaries, backend response,
+playback boundaries, completion, and failures with timestamps, a safe `turn=`
+identifier, and byte/duration metadata. It never logs raw audio, transcript
+content, the Device GUID, or credentials.
+
 ## Release build
 
 Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.2
+.\packaging\build-release.ps1 -Version 2.0.3
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.2
+./packaging/build-release.sh --version 2.0.3
 ```
 
-The published `home-assistant-pi-bundle-2.0.2.tar.gz` contains one wheel, three
+The published `home-assistant-pi-bundle-2.0.3.tar.gz` contains one wheel, three
 lifecycle scripts, configuration metadata, and an internal wheel checksum. It
 does not contain backend source, tests, recordings, or a virtual environment.

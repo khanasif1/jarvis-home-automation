@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Protocol
 
 
@@ -43,6 +43,7 @@ class CommandAudioStream(Iterator[bytes]):
         no_speech_timeout_seconds: float = 3.0,
         silence_timeout_seconds: float = 1.2,
         max_command_seconds: float = 30.0,
+        activity_callback: Callable[[str, dict[str, int | str]], None] | None = None,
     ) -> None:
         if frame_duration_ms not in {10, 20, 30}:
             raise ValueError("WebRTC VAD frames must be 10, 20, or 30 ms.")
@@ -64,16 +65,51 @@ class CommandAudioStream(Iterator[bytes]):
         self._silent_frames = 0
         self._heard_speech = False
         self._stop_next = False
+        self._activity_callback = activity_callback
+        self._completion_emitted = False
+        self._speech_frames = 0
         self.no_speech_detected = False
 
     def __iter__(self) -> "CommandAudioStream":
         return self
 
+    @property
+    def captured_bytes(self) -> int:
+        return self._frames * self._frame_bytes
+
+    @property
+    def captured_duration_ms(self) -> int:
+        return self._frames * self._frame_duration_ms
+
+    def _emit(self, event: str, **details: int | str) -> None:
+        if self._activity_callback is not None:
+            self._activity_callback(event, details)
+
+    def _complete(self, reason: str) -> None:
+        if self._completion_emitted:
+            return
+        self._completion_emitted = True
+        details: dict[str, int | str] = {
+            "reason": reason,
+            "captured_ms": self.captured_duration_ms,
+            "captured_bytes": self.captured_bytes,
+        }
+        if self._heard_speech:
+            details["speech_ms"] = self._speech_frames * self._frame_duration_ms
+            self._emit("speech_ended", **details)
+        else:
+            self._emit("capture_ended", **details)
+
     def __next__(self) -> bytes:
-        if self._stop_next or self._frames >= self._max_frames:
+        if self._stop_next:
+            self._complete("trailing_silence")
+            raise StopIteration
+        if self._frames >= self._max_frames:
             if not self._heard_speech:
                 self.no_speech_detected = True
+                self._complete("maximum_duration_without_speech")
                 raise NoSpeechDetected("No command speech was detected.")
+            self._complete("maximum_duration")
             raise StopIteration
 
         try:
@@ -81,7 +117,9 @@ class CommandAudioStream(Iterator[bytes]):
         except StopIteration:
             if not self._heard_speech:
                 self.no_speech_detected = True
+                self._complete("microphone_stream_ended_without_speech")
                 raise NoSpeechDetected("Microphone stream ended before speech began.")
+            self._complete("microphone_stream_ended")
             raise
         if len(frame) != self._frame_bytes:
             raise RuntimeError(
@@ -90,6 +128,12 @@ class CommandAudioStream(Iterator[bytes]):
 
         self._frames += 1
         if self._vad.is_speech(frame, self._sample_rate):
+            if not self._heard_speech:
+                self._emit(
+                    "speech_started",
+                    offset_ms=(self._frames - 1) * self._frame_duration_ms,
+                )
+            self._speech_frames += 1
             self._heard_speech = True
             self._silent_frames = 0
         elif self._heard_speech:
@@ -98,11 +142,15 @@ class CommandAudioStream(Iterator[bytes]):
                 self._stop_next = True
         elif self._frames >= self._no_speech_frames:
             self.no_speech_detected = True
+            self._complete("no_speech_timeout")
             raise NoSpeechDetected("No command speech began before the activation timeout.")
 
         return frame
 
     def close(self) -> None:
         close = getattr(self._chunks, "close", None)
-        if callable(close):
-            close()
+        try:
+            if callable(close):
+                close()
+        finally:
+            self._complete("stream_closed")
