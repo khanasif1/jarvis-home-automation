@@ -2,9 +2,10 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.3"
+readonly DEFAULT_VERSION="2.0.4"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
+readonly MODEL_DIR="${CONFIG_DIR}/models"
 readonly CONFIG_FILE="${CONFIG_DIR}/config.env"
 readonly RUNTIME_USER_FILE="${CONFIG_DIR}/runtime-user"
 readonly LINGER_MARKER_FILE="${CONFIG_DIR}/runtime-linger-managed"
@@ -27,7 +28,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.3)
+  --version VERSION      Release version to install (default: 2.0.4)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 
@@ -144,8 +145,10 @@ DEVICE_GUID="${DEVICE_GUID:-$(read_config_value HAP_DEVICE_GUID)}"
 INPUT_DEVICE="$(read_config_value HAP_INPUT_DEVICE)"
 OUTPUT_DEVICE="$(read_config_value HAP_OUTPUT_DEVICE)"
 WAKEWORD_THRESHOLD="$(read_config_value HAP_WAKEWORD_THRESHOLD)"
+WAKEWORD_MODEL_PATH="$(read_config_value HAP_WAKEWORD_MODEL_PATH)"
 VAD_MODE="$(read_config_value HAP_VAD_MODE)"
 NO_SPEECH_TIMEOUT_SECONDS="$(read_config_value HAP_NO_SPEECH_TIMEOUT_SECONDS)"
+FOLLOWUP_TIMEOUT_SECONDS="$(read_config_value HAP_FOLLOWUP_TIMEOUT_SECONDS)"
 SILENCE_TIMEOUT_SECONDS="$(read_config_value HAP_SILENCE_TIMEOUT_SECONDS)"
 MAX_COMMAND_SECONDS="$(read_config_value HAP_MAX_COMMAND_SECONDS)"
 PLAYBACK_COOLDOWN_SECONDS="$(read_config_value HAP_PLAYBACK_COOLDOWN_SECONDS)"
@@ -157,9 +160,15 @@ if [[ -n "${PREVIOUS_RUNTIME_USER}" && "${PREVIOUS_RUNTIME_USER}" != "${RUNTIME_
   OUTPUT_DEVICE=""
 fi
 
-WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.5}"
+if [[ "${WAKEWORD_THRESHOLD}" == "0.5" ]]; then
+  echo "Migrating the legacy wake-word threshold from 0.5 to 0.35."
+  WAKEWORD_THRESHOLD="0.35"
+fi
+WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.35}"
+WAKEWORD_MODEL_PATH="${WAKEWORD_MODEL_PATH:-}"
 VAD_MODE="${VAD_MODE:-2}"
 NO_SPEECH_TIMEOUT_SECONDS="${NO_SPEECH_TIMEOUT_SECONDS:-3.0}"
+FOLLOWUP_TIMEOUT_SECONDS="${FOLLOWUP_TIMEOUT_SECONDS:-30.0}"
 SILENCE_TIMEOUT_SECONDS="${SILENCE_TIMEOUT_SECONDS:-1.2}"
 MAX_COMMAND_SECONDS="${MAX_COMMAND_SECONDS:-30.0}"
 PLAYBACK_COOLDOWN_SECONDS="${PLAYBACK_COOLDOWN_SECONDS:-0.75}"
@@ -429,7 +438,7 @@ PY
 "${RELEASE_DIR}/.venv/bin/python" -c \
   "from home_assistant_pi.wakeword.openwakeword import validate_runtime; validate_runtime()"
 
-install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}"
+install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}" "${MODEL_DIR}"
 umask 0027
 cat >"${CONFIG_FILE}" <<EOF
 HAP_API_BASE_URL=${API_URL}
@@ -437,8 +446,10 @@ HAP_DEVICE_GUID=${DEVICE_GUID}
 HAP_INPUT_DEVICE=${INPUT_DEVICE}
 HAP_OUTPUT_DEVICE=${OUTPUT_DEVICE}
 HAP_WAKEWORD_THRESHOLD=${WAKEWORD_THRESHOLD}
+HAP_WAKEWORD_MODEL_PATH=${WAKEWORD_MODEL_PATH}
 HAP_VAD_MODE=${VAD_MODE}
 HAP_NO_SPEECH_TIMEOUT_SECONDS=${NO_SPEECH_TIMEOUT_SECONDS}
+HAP_FOLLOWUP_TIMEOUT_SECONDS=${FOLLOWUP_TIMEOUT_SECONDS}
 HAP_SILENCE_TIMEOUT_SECONDS=${SILENCE_TIMEOUT_SECONDS}
 HAP_MAX_COMMAND_SECONDS=${MAX_COMMAND_SECONDS}
 HAP_PLAYBACK_COOLDOWN_SECONDS=${PLAYBACK_COOLDOWN_SECONDS}

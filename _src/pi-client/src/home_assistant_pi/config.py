@@ -16,6 +16,7 @@ OUTPUT_SAMPLE_RATE = 24_000
 SAMPLE_WIDTH_BYTES = 2
 FRAME_DURATION_MS = 20
 MAX_ALLOWED_COMMAND_SECONDS = 30.0
+MAX_FOLLOWUP_TIMEOUT_SECONDS = 60.0
 SECRET_FIELDS = frozenset({"device_guid"})
 
 
@@ -79,9 +80,11 @@ class Config:
     device_guid: str
     input_device: str | None = None
     output_device: str | None = None
-    wakeword_threshold: float = 0.5
+    wakeword_threshold: float = 0.35
+    wakeword_model_path: str | None = None
     vad_mode: int = 2
     no_speech_timeout_seconds: float = 3.0
+    followup_timeout_seconds: float = 30.0
     silence_timeout_seconds: float = 1.2
     max_command_seconds: float = 30.0
     playback_cooldown_seconds: float = 0.75
@@ -101,10 +104,20 @@ class Config:
 
         if not 0.0 < self.wakeword_threshold <= 1.0:
             errors.append("wakeword_threshold must be greater than 0 and at most 1")
+        if self.wakeword_model_path is not None:
+            model_path = Path(self.wakeword_model_path)
+            if not model_path.is_absolute():
+                errors.append("wakeword_model_path must be an absolute path")
+            elif model_path.suffix.lower() != ".tflite":
+                errors.append("wakeword_model_path must reference a .tflite file")
+            elif not model_path.is_file():
+                errors.append(f"wakeword_model_path does not exist: {model_path}")
         if self.vad_mode not in {0, 1, 2, 3}:
             errors.append("vad_mode must be 0, 1, 2, or 3")
         if self.no_speech_timeout_seconds <= 0:
             errors.append("no_speech_timeout_seconds must be positive")
+        if not 1.0 <= self.followup_timeout_seconds <= MAX_FOLLOWUP_TIMEOUT_SECONDS:
+            errors.append("followup_timeout_seconds must be between 1 and 60")
         if self.silence_timeout_seconds <= 0:
             errors.append("silence_timeout_seconds must be positive")
         if not 1.0 <= self.max_command_seconds <= MAX_ALLOWED_COMMAND_SECONDS:
@@ -161,9 +174,11 @@ def load_config(
         device_guid=get("device_guid"),
         input_device=get("input_device") or None,
         output_device=get("output_device") or None,
-        wakeword_threshold=get_float("wakeword_threshold", 0.5),
+        wakeword_threshold=get_float("wakeword_threshold", 0.35),
+        wakeword_model_path=get("wakeword_model_path") or None,
         vad_mode=get_int("vad_mode", 2),
         no_speech_timeout_seconds=get_float("no_speech_timeout_seconds", 3.0),
+        followup_timeout_seconds=get_float("followup_timeout_seconds", 30.0),
         silence_timeout_seconds=get_float("silence_timeout_seconds", 1.2),
         max_command_seconds=get_float("max_command_seconds", 30.0),
         playback_cooldown_seconds=get_float("playback_cooldown_seconds", 0.75),

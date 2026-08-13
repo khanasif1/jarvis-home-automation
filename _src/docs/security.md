@@ -34,13 +34,15 @@ GUID in logs, screenshots, issue reports, or source control.
 
 ## Data handling
 
-- Microphone audio exists in bounded memory while it streams.
+- Microphone audio exists only in bounded memory while it is captured and
+  uploaded. Up to 30 seconds of follow-up waiting silence is discarded locally.
 - The application never writes command or response audio to disk.
 - The backend creates one Foundry session per request and closes it on success,
   failure, or client cancellation.
 - The backend logs failure categories but not audio, the device GUID, model
   transcripts, or response content.
-- No conversation history persists between turns.
+- A multi-query session retains only control state and query counters. No audio,
+  transcript, response, or model conversation history persists between requests.
 
 ## Public surface
 

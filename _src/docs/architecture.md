@@ -4,19 +4,24 @@
 
 ```mermaid
 flowchart LR
-    Mic[Pi microphone] --> Wake[openWakeWord<br/>hey jarvis]
-    Wake --> VAD[WebRTC VAD<br/>20 ms frames]
+    Mic[Pi microphone] --> Wake[openWakeWord<br/>hey/hello jarvis]
+    Wake --> Greet[Local greeting]
+    Greet --> VAD[WebRTC VAD<br/>20 ms frames]
+    VAD --> Search[Local search acknowledgement]
     VAD -->|chunked 16 kHz PCM| Fn[Azure Function<br/>HTTP streaming]
     Fn -->|incremental resample| RT[Microsoft Foundry<br/>GPT Realtime]
     RT -->|24 kHz PCM deltas| Fn
     Fn -->|streamed 24 kHz PCM| Speaker[Pi speaker]
+    Speaker --> Follow[Local follow-up prompt]
+    Follow -->|speech within 30 seconds| VAD
+    Follow -->|timeout| Sleep[Local sleep prompt]
 ```
 
-The Pi owns only physical audio, wake detection, turn termination, and
-playback. The Function owns protocol validation, authentication, resampling,
-Microsoft Entra token acquisition, and the Realtime session. GPT Realtime owns
-speech understanding, response generation, and speech synthesis in one model
-session.
+The Pi owns only physical audio, wake detection, local session prompts,
+follow-up timing, turn termination, and playback. The Function owns protocol
+validation, authentication, resampling, Microsoft Entra token acquisition, and
+the Realtime session. GPT Realtime owns speech understanding, response
+generation, and speech synthesis in one model session.
 
 ## Pi state machine
 
@@ -26,15 +31,19 @@ IDLE_WAKEWORD
   -> STREAMING_COMMAND
   -> WAITING_FOR_RESPONSE
   -> PLAYING_RESPONSE
+  -> STREAMING_COMMAND (follow-up)
   -> COOLDOWN
   -> IDLE_WAKEWORD
 ```
 
-- `IDLE_WAKEWORD`: one TFLite model consumes 80 ms microphone frames.
-- `ACTIVATED`: play a short local cue.
-- `STREAMING_COMMAND`: upload 20 ms PCM frames as they are captured.
-- `WAITING_FOR_RESPONSE`: request upload is complete; wait for first audio.
-- `PLAYING_RESPONSE`: write each response chunk directly to PortAudio.
+- `IDLE_WAKEWORD`: one pre-warmed TFLite model consumes 80 ms microphone frames.
+- `ACTIVATED`: play the local spoken greeting.
+- `STREAMING_COMMAND`: apply VAD to 20 ms frames and retain only bounded command
+  audio plus a short pre-roll.
+- `WAITING_FOR_RESPONSE`: dispatch the chunked request in a worker and play the
+  local search acknowledgement.
+- `PLAYING_RESPONSE`: write response chunks directly to PortAudio, ask for
+  another query, and loop when follow-up speech begins.
 - `COOLDOWN`: wait 750 ms to avoid the speaker retriggering the wake word.
 
 The design is half-duplex. No barge-in or wake-word inference runs during a
@@ -42,17 +51,18 @@ turn.
 
 ## Turn completion and limits
 
-WebRTC VAD cancels an activation if speech does not begin within 3 seconds.
-After speech starts, 1.2 seconds of silence closes the request. Regardless of
-VAD, 30 seconds (`960,000` input bytes) is a hard ceiling enforced independently
-on the Pi and Function.
+WebRTC VAD cancels an initial activation if speech does not begin within 3
+seconds and closes a follow-up wait after 30 seconds. The long pre-speech wait
+is not uploaded. After speech starts, 1.2 seconds of silence closes the request.
+Regardless of VAD, 30 seconds (`960,000` input bytes) is a hard command ceiling
+enforced independently on the Pi and Function.
 
 Azure Functions supports streamed HTTP bodies and responses but is not a
-full-duplex WebSocket host. Input reaches Foundry while the Pi is speaking;
-Foundry input is committed at request EOF. Response headers are returned only
-after the first valid Foundry audio delta, then later deltas stream directly to
-the Pi. This removes complete-file buffering without introducing a separate
-WebSocket gateway.
+full-duplex WebSocket host. The Pi dispatches the bounded in-memory command as a
+chunked body after local VAD closes it. Foundry input is committed at request
+EOF. Response headers are returned only after the first valid Foundry audio
+delta, then later deltas stream directly to the Pi. The local search prompt
+masks request setup latency without introducing a separate WebSocket gateway.
 
 ## Audio contract
 

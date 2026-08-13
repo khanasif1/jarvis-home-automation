@@ -93,10 +93,16 @@ def _doctor(config_path: Path) -> int:
         from .wakeword import create_detector
 
         detector = create_detector(
-            config.wakeword_threshold if config is not None else 0.5
+            config.wakeword_threshold if config is not None else 0.35,
+            config.wakeword_model_path if config is not None else None,
         )
         detector.close()
-        checks.append(("wake-word model", True, "TFLite model loaded"))
+        model_name = (
+            config.wakeword_model_path
+            if config is not None and config.wakeword_model_path
+            else "built-in hey_jarvis"
+        )
+        checks.append(("wake-word model", True, f"TFLite model loaded: {model_name}"))
     except Exception as exc:
         checks.append(("wake-word model", False, str(exc)))
     try:

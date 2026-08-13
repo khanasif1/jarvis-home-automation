@@ -10,13 +10,15 @@ partially migrated legacy features.
 Create a simple, low-latency, half-duplex voice assistant for a Raspberry Pi
 3B:
 
-1. The Pi listens locally for the wake phrase **"hey jarvis"**.
-2. After detection, the Pi streams the user's command as raw PCM audio to an
-   Azure Function.
-3. The Function forwards audio to a Microsoft Foundry GPT Realtime deployment
+1. The Pi listens locally for **"hey jarvis"** or **"hello jarvis"**.
+2. After detection, the Pi greets the user, captures the command, dispatches it
+   as raw PCM audio, and plays a local search acknowledgement.
+3. The Azure Function forwards audio to a Microsoft Foundry GPT Realtime deployment
    using Microsoft Entra authentication.
 4. The Function streams generated PCM audio back to the Pi.
 5. The Pi starts playback as soon as the first response bytes arrive.
+6. The Pi asks for another query, repeats the loop when speech begins, and
+   returns to wake mode after 30 seconds without follow-up speech.
 
 Do not use push-to-talk. Do not support barge-in while the assistant is
 speaking. Do not store recordings, transcripts, conversations, reminders, or
@@ -47,6 +49,7 @@ IDLE_WAKEWORD
   -> STREAMING_COMMAND
   -> WAITING_FOR_RESPONSE
   -> PLAYING_RESPONSE
+  -> STREAMING_COMMAND (when follow-up speech begins)
   -> COOLDOWN
   -> IDLE_WAKEWORD
 ```
@@ -63,10 +66,12 @@ for the configured cooldown so the assistant cannot trigger itself.
 ### 4.1 Wake word
 
 - Support only `openWakeWord` using its TFLite/LiteRT inference path.
-- Load only the bundled/pretrained `hey jarvis` model, never every model.
+- Load only the bundled/pretrained `hey jarvis` model by default, never every
+  model. Permit one operator-supplied custom `.tflite` model path.
 - Use 16 kHz, mono, signed 16-bit little-endian PCM.
 - Feed the wake model efficient 80 ms frames.
-- Default wake threshold: `0.5`, configurable from `config.env`.
+- Pre-warm the model's five initialization frames after startup and reset.
+- Default wake threshold: `0.35`, configurable from `config.env`.
 - Do not include Porcupine, keyboard activation, or push-to-talk fallbacks.
 
 ### 4.2 Command capture and end-of-speech
@@ -76,6 +81,9 @@ for the configured cooldown so the assistant cannot trigger itself.
 - Stream 20 ms PCM frames.
 - Use WebRTC VAD locally, mode `2` by default.
 - Cancel the turn if no command speech starts within `3.0` seconds.
+- After each answer, wait up to `30.0` seconds for follow-up speech.
+- Do not retain or upload the long pre-speech follow-up silence; keep only a
+  short in-memory pre-roll so the first syllable is preserved.
 - Once speech starts, end the request after `1.2` seconds of continuous
   non-speech.
 - Enforce a **30.0-second hard maximum command duration**.
@@ -95,8 +103,9 @@ X-Audio-Sample-Width: 2
 Transfer-Encoding: chunked
 ```
 
-- Use a generator/iterator as the request body so chunks are uploaded as they
-  are captured.
+- Use a generator/iterator as the request body. Dispatch the bounded in-memory
+  command after VAD completes, then play the local search acknowledgement while
+  the blocking HTTP request runs in a worker.
 - Do not retry a voice request after any body bytes have been sent; replaying
   partial speech can create duplicate answers.
 - Use bounded connect and response timeouts.
@@ -114,8 +123,10 @@ Keep only these operator settings:
 - `HAP_INPUT_DEVICE`
 - `HAP_OUTPUT_DEVICE`
 - `HAP_WAKEWORD_THRESHOLD`
+- `HAP_WAKEWORD_MODEL_PATH`
 - `HAP_VAD_MODE`
 - `HAP_NO_SPEECH_TIMEOUT_SECONDS`
+- `HAP_FOLLOWUP_TIMEOUT_SECONDS`
 - `HAP_SILENCE_TIMEOUT_SECONDS`
 - `HAP_MAX_COMMAND_SECONDS` (default and maximum `30.0`)
 - `HAP_PLAYBACK_COOLDOWN_SECONDS`
@@ -124,6 +135,22 @@ Keep only these operator settings:
 The installer must create a root-owned `0640`
 `/etc/home-assistant-pi/config.env`, preserve it on reinstall, and require the
 API URL and canonical UUID before starting the service.
+
+### 4.5 Spoken session prompts
+
+Bundle local 24 kHz mono PCM16 prompts and play them in this order:
+
+1. On activation: `I am your AI assistant. How can I help?`
+2. After command capture and backend dispatch:
+   `I will search for your query and get back soon.`
+3. After every successful answer:
+   `Do you have another query? Please say it now.`
+4. Before every normal/error/timeout return to wake mode:
+   `I am going back to sleep mode. Wake me up if you want to talk again.`
+
+Wake-word inference must remain disabled for the entire multi-query session.
+The assistant does not preserve text, transcripts, or model conversation
+history between query requests.
 
 ## 5. Azure Function behavior
 
@@ -277,7 +304,8 @@ Azure uninstall must:
 Pi install/uninstall must:
 
 - Be safe to rerun.
-- Install only production dependencies and the one supported wake-word path.
+- Install only production dependencies, the bundled wake-word path, and at most
+  one explicitly configured custom TFLite model.
 - Require 64-bit Raspberry Pi OS.
 - Run as the selected non-root desktop user with that user's PipeWire runtime
   environment; retain the runtime user for idempotent updates and enable linger

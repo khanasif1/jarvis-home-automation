@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.4
+
+- Pre-warm openWakeWord after startup/reset and migrate the default detection
+  threshold from `0.5` to `0.35` for better first-attempt activation.
+- Support an optional custom openWakeWord TFLite model through
+  `HAP_WAKEWORD_MODEL_PATH`.
+- Add local greeting, search acknowledgement, follow-up, and sleep speech.
+- Keep a session open for repeated queries and close it after 30 seconds without
+  follow-up speech.
+- Exclude long pre-speech silence from uploaded PCM while retaining a short
+  pre-roll so the first command syllable is not clipped.
+
 ## 2.0.3
 
 - Emit correlated `activity` events for wake detection, input capture and

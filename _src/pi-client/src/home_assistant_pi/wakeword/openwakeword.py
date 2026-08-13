@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sys
 import types
 from pathlib import Path
@@ -10,11 +11,14 @@ from typing import Any
 
 from .base import WakewordDetector, WakewordError
 
-_MODEL_FILES = {
+logger = logging.getLogger(__name__)
+
+_FEATURE_MODEL_FILES = {
     "embedding": "embedding_model.tflite",
     "melspectrogram": "melspectrogram.tflite",
-    "hey_jarvis": "hey_jarvis_v0.1.tflite",
 }
+_BUILTIN_MODEL_FILE = "hey_jarvis_v0.1.tflite"
+_WARMUP_FRAMES = 5
 
 
 def _package_directory() -> Path:
@@ -28,17 +32,26 @@ def _package_directory() -> Path:
     return Path(next(iter(spec.submodule_search_locations)))
 
 
-def validate_runtime() -> None:
+def validate_runtime(model_path: str | None = None) -> None:
     package_dir = _package_directory()
+    required_models = list(_FEATURE_MODEL_FILES.values())
+    if model_path is None:
+        required_models.append(_BUILTIN_MODEL_FILE)
     missing = [
         name
-        for name in _MODEL_FILES.values()
+        for name in required_models
         if not (package_dir / "resources" / "models" / name).is_file()
     ]
     if missing:
         raise WakewordError(
             "Missing openWakeWord TFLite models: " + ", ".join(sorted(missing))
         )
+    if model_path is not None:
+        custom_model = Path(model_path)
+        if not custom_model.is_file():
+            raise WakewordError(f"Custom wake-word model does not exist: {custom_model}")
+        if custom_model.suffix.lower() != ".tflite":
+            raise WakewordError("Custom wake-word model must be a .tflite file.")
     try:
         import numpy  # noqa: F401
         import tflite_runtime.interpreter  # noqa: F401
@@ -62,13 +75,15 @@ def _load_model_class() -> type[Any]:
     package.__path__ = [str(package_dir)]
     package.__package__ = "openwakeword"
     package.FEATURE_MODELS = {
-        "embedding": {"model_path": str(model_dir / _MODEL_FILES["embedding"])},
+        "embedding": {
+            "model_path": str(model_dir / _FEATURE_MODEL_FILES["embedding"])
+        },
         "melspectrogram": {
-            "model_path": str(model_dir / _MODEL_FILES["melspectrogram"])
+            "model_path": str(model_dir / _FEATURE_MODEL_FILES["melspectrogram"])
         },
     }
     package.MODELS = {
-        "hey_jarvis": {"model_path": str(model_dir / _MODEL_FILES["hey_jarvis"])}
+        "hey_jarvis": {"model_path": str(model_dir / _BUILTIN_MODEL_FILE)}
     }
     package.model_class_mappings = {}
 
@@ -92,19 +107,37 @@ def _load_model_class() -> type[Any]:
 
 
 class OpenWakewordDetector(WakewordDetector):
-    def __init__(self, threshold: float = 0.5) -> None:
+    def __init__(
+        self,
+        threshold: float = 0.35,
+        model_path: str | None = None,
+    ) -> None:
         try:
-            validate_runtime()
+            validate_runtime(model_path)
             model_class = _load_model_class()
+            selected_model = model_path or "hey jarvis"
             self._model = model_class(
-                wakeword_models=["hey jarvis"],
+                wakeword_models=[selected_model],
                 inference_framework="tflite",
             )
+            import numpy
+
+            self._numpy = numpy
         except WakewordError:
             raise
         except Exception as exc:
-            raise WakewordError(f"Could not load the 'hey jarvis' TFLite model: {exc}") from exc
+            description = model_path or "the built-in 'hey jarvis' model"
+            raise WakewordError(
+                f"Could not load {description} as a TFLite wake-word model: {exc}"
+            ) from exc
         self._threshold = threshold
+        self._model_name = Path(model_path).stem if model_path else "hey_jarvis"
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        silence = self._numpy.zeros(self.frame_length(), dtype=self._numpy.int16)
+        for _ in range(_WARMUP_FRAMES):
+            self._model.predict(silence)
 
     def frame_length(self) -> int:
         return 1_280
@@ -118,22 +151,34 @@ class OpenWakewordDetector(WakewordDetector):
                 f"Wake-word frame must be {self.frame_length() * 2} bytes."
             )
         try:
-            import numpy
-
             predictions = self._model.predict(
-                numpy.frombuffer(pcm16_chunk, dtype=numpy.int16)
+                self._numpy.frombuffer(pcm16_chunk, dtype=self._numpy.int16)
             )
         except Exception as exc:
             raise WakewordError(f"Wake-word inference failed: {exc}") from exc
-        return any(
-            "jarvis" in name.lower() and float(score) >= self._threshold
-            for name, score in predictions.items()
-        )
+        highest_score = max((float(score) for score in predictions.values()), default=0.0)
+        detected = highest_score >= self._threshold
+        if detected:
+            logger.info(
+                "Wake word detected model=%s score=%.3f threshold=%.3f",
+                self._model_name,
+                highest_score,
+                self._threshold,
+            )
+        else:
+            logger.debug(
+                "Wake word score model=%s score=%.3f threshold=%.3f",
+                self._model_name,
+                highest_score,
+                self._threshold,
+            )
+        return detected
 
     def reset(self) -> None:
         reset = getattr(self._model, "reset", None)
         if callable(reset):
             reset()
+            self._warm_up()
 
     def close(self) -> None:
         self._model = None

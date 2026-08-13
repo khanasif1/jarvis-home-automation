@@ -4,8 +4,11 @@ from .base import WakewordDetector, WakewordError
 from .openwakeword import OpenWakewordDetector
 
 
-def create_detector(threshold: float = 0.5) -> WakewordDetector:
-    return OpenWakewordDetector(threshold=threshold)
+def create_detector(
+    threshold: float = 0.35,
+    model_path: str | None = None,
+) -> WakewordDetector:
+    return OpenWakewordDetector(threshold=threshold, model_path=model_path)
 
 
 __all__ = [

@@ -1,17 +1,17 @@
 # Jarvis Home Voice Assistant
 
 Jarvis is a small half-duplex voice assistant for a 64-bit Raspberry Pi 3B. The
-Pi performs only **“hey jarvis”** wake-word detection, WebRTC voice activity
-detection, 16 kHz PCM capture, and 24 kHz PCM playback. An always-ready Azure
-Function receives the live request stream and uses its managed identity to call
-GPT Realtime in Microsoft Foundry. Storage and Foundry reject key
-authentication.
+Pi performs local **“hey jarvis” / “hello jarvis”** wake detection, WebRTC voice
+activity detection, 16 kHz PCM capture, and 24 kHz PCM playback. An always-ready
+Azure Function receives each query and uses its managed identity to call GPT
+Realtime in Microsoft Foundry. Storage and Foundry reject key authentication.
 
-The request audio starts uploading immediately; it is not recorded to a WAV
-file. Azure Functions HTTP streaming is turn-based rather than full-duplex, so
-the response begins after VAD closes the command, then plays on the Pi as each
-response chunk arrives. A command ends after 1.2 seconds of silence or at the
-30-second hard maximum.
+After wake detection, Jarvis greets the user, captures only command speech in
+bounded memory, dispatches it as chunked PCM, and speaks a local search message
+while the backend works. Returned 24 kHz PCM plays incrementally. Jarvis then
+asks for another query and keeps the session open for 30 seconds; a timeout
+plays the sleep message and re-enables wake detection. Audio is never written
+to a temporary WAV file.
 
 ## 1. Install application on Pi
 
@@ -23,20 +23,20 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.3.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.4.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.3.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.3/home-assistant-pi-bundle-2.0.3.tar.gz
+  --output home-assistant-pi-bundle-2.0.4.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.4/home-assistant-pi-bundle-2.0.4.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.3/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.4/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.3.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.4.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.3 \
+  --version 2.0.4 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
@@ -50,12 +50,12 @@ To upgrade an existing installation while explicitly selecting desktop user
 `pi`, download/extract the current bundle as above, then run:
 
 ```bash
-sudo ./update.sh --version 2.0.3 --runtime-user pi
+sudo ./update.sh --version 2.0.4 --runtime-user pi
 ```
 
-This preserves the API URL and Device GUID. When migrating from release 2.0.1,
-it clears the old account's numeric audio indexes and resolves devices again
-inside `pi`'s PipeWire session.
+This preserves the API URL and Device GUID. The 2.0.4 update migrates the old
+default wake threshold from `0.5` to `0.35`, while retaining explicitly
+configured audio devices and custom wake-word model paths.
 
 ```bash
 sudo systemctl status home-assistant-pi.service --no-pager
@@ -63,7 +63,7 @@ sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
 sudo home-assistant-pi-service doctor
 ```
 
-Version 2.0.3 runs in the invoking desktop user's PipeWire audio session and
+Version 2.0.4 runs in the invoking desktop user's PipeWire audio session and
 automatically selects compatible defaults. Use `--runtime-user USER` when the
 installer is invoked by a different administrator. If it selects the wrong
 hardware, list devices in the service's exact environment and set
@@ -90,11 +90,11 @@ sudo journalctl -u home-assistant-pi.service -n 50 --no-pager -l
 ```
 
 Expected service values are `ActiveState=active`, `SubState=running`, and
-`NRestarts=0`. Say **“hey jarvis”**, wait for the activation sound, ask a short
-question, and confirm that spoken audio is returned. Follow live logs during
-that test with:
+`NRestarts=0`. Say **“Hello Jarvis”** once. Jarvis should greet you, acknowledge
+the query while Azure works, play the answer, and ask for another query. Say a
+second query or remain silent for 30 seconds and confirm the sleep message.
 
-Version 2.0.3 emits one correlated `activity` line at every live input/output
+Version 2.0.4 emits one correlated `activity` line at every live input/output
 stage. To start with an empty view and monitor only new interaction activity:
 
 ```bash
@@ -110,6 +110,41 @@ The output updates immediately for wake detection, input speech start/end,
 backend response, output playback start/end, completion, cancellation, and
 failure. Each line includes the application timestamp and a `turn=` identifier.
 Raw audio, spoken text, the Device GUID, and credentials are never logged.
+
+### Wake-word settings
+
+Wake settings are in `/etc/home-assistant-pi/config.env`:
+
+```dotenv
+HAP_WAKEWORD_THRESHOLD=0.35
+HAP_WAKEWORD_MODEL_PATH=
+```
+
+The built-in openWakeWord model is trained for **“Hey Jarvis.”** Pre-warming
+plus the `0.35` threshold improves first-attempt **“Hello Jarvis”** detection.
+If your room is noisy, increase the threshold toward `0.5`; if valid wake words
+are still missed, reduce it toward `0.25`, then restart and test:
+
+```bash
+sudo nano /etc/home-assistant-pi/config.env
+sudo systemctl restart home-assistant-pi.service
+sudo home-assistant-pi-service doctor
+```
+
+Changing the phrase itself requires a custom openWakeWord `.tflite` model; a
+text setting cannot retrain the model. Copy a trained model to the preserved
+model directory and point the configuration at its absolute path:
+
+```bash
+sudo install -m 0640 -o root -g homeassistantpi \
+  ./my_wake_word.tflite \
+  /etc/home-assistant-pi/models/my_wake_word.tflite
+sudo nano /etc/home-assistant-pi/config.env
+# Set:
+# HAP_WAKEWORD_MODEL_PATH=/etc/home-assistant-pi/models/my_wake_word.tflite
+sudo systemctl restart home-assistant-pi.service
+sudo home-assistant-pi-service doctor
+```
 
 To include startup, device, warning, and traceback messages too:
 
