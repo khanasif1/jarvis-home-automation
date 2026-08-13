@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 from azure.identity.aio import DefaultAzureCredential, ManagedIdentityCredential
 from openai import AsyncOpenAI
@@ -17,6 +18,47 @@ from .config import AppConfig, OUTPUT_SAMPLE_RATE
 FOUNDRY_TOKEN_SCOPE = "https://ai.azure.com/.default"
 FOUNDRY_HANDSHAKE_TIMEOUT_SECONDS = 30.0
 logger = logging.getLogger(__name__)
+JARVIS_QUERY = "JARVIS_QUERY"
+JARVIS_SLEEP = "JARVIS_SLEEP"
+FOLLOWUP_INTENT_INSTRUCTIONS = (
+    "Classify the user's follow-up audio by calling exactly one supplied function. "
+    "Call jarvis_sleep when the user says they have no more questions, declines "
+    "another query, asks to stop or sleep, says goodbye, says thanks or that's all, "
+    "or the audio has no clear meaningful request. Call jarvis_query only when the "
+    "audio contains a clear question or request that Jarvis should answer. If a "
+    "clear new request accompanies a negation, call jarvis_query. Do not produce "
+    "spoken or written output."
+)
+FOLLOWUP_INTENT_TOOLS = [
+    {
+        "type": "function",
+        "name": "jarvis_sleep",
+        "description": (
+            "End the conversation because the user is done, declined another "
+            "query, or did not provide a clear meaningful request."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "jarvis_query",
+        "description": (
+            "Continue because the user provided a clear question or request for "
+            "Jarvis to answer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+]
 
 
 class FoundryRealtimeError(RuntimeError):
@@ -149,16 +191,89 @@ class FoundryRealtimeSession:
         except Exception as exc:
             raise FoundryRealtimeError("Foundry rejected an audio chunk.") from exc
 
-    async def commit_and_create_response(self) -> None:
+    async def commit_and_create_response(
+        self,
+        *,
+        response_mode: Literal["audio", "followup_intent"] = "audio",
+    ) -> None:
         if self._connection is None:
             raise FoundryRealtimeError("Realtime session is not open.")
         try:
             await self._connection.input_audio_buffer.commit()
-            await self._connection.response.create()
+            if response_mode == "followup_intent":
+                await self._connection.response.create(
+                    response={
+                        "instructions": FOLLOWUP_INTENT_INSTRUCTIONS,
+                        "output_modalities": ["text"],
+                        "tools": FOLLOWUP_INTENT_TOOLS,
+                        "tool_choice": "required",
+                        "parallel_tool_calls": False,
+                        "max_output_tokens": 64,
+                    }
+                )
+            else:
+                await self._connection.response.create()
         except Exception as exc:
             raise FoundryRealtimeError(
-                "Foundry could not start the audio response."
+                "Foundry could not start the requested response."
             ) from exc
+
+    async def followup_intent(self) -> Literal["JARVIS_QUERY", "JARVIS_SLEEP"]:
+        if self._connection is None:
+            raise FoundryRealtimeError("Realtime session is not open.")
+
+        calls: list[str] = []
+        received_done = False
+        try:
+            async with asyncio.timeout(self._config.response_timeout_seconds):
+                async for event in self._connection:
+                    event_type = getattr(event, "type", "")
+                    if event_type == "response.function_call_arguments.done":
+                        try:
+                            arguments = json.loads(getattr(event, "arguments", ""))
+                        except (TypeError, ValueError) as exc:
+                            raise FoundryRealtimeError(
+                                "Foundry returned malformed follow-up intent arguments."
+                            ) from exc
+                        if arguments != {}:
+                            raise FoundryRealtimeError(
+                                "Foundry follow-up intent arguments must be empty."
+                            )
+                        calls.append(str(getattr(event, "name", "")))
+                    elif event_type == "error":
+                        error = getattr(event, "error", None)
+                        message = getattr(error, "message", "Unknown Realtime API error")
+                        raise FoundryRealtimeError(str(message))
+                    elif event_type == "response.done":
+                        status = getattr(getattr(event, "response", None), "status", "")
+                        if status and status != "completed":
+                            raise FoundryRealtimeError(
+                                f"Foundry response ended with status '{status}'."
+                            )
+                        received_done = True
+                        break
+        except TimeoutError as exc:
+            raise FoundryRealtimeError(
+                "Timed out waiting for Foundry follow-up intent."
+            ) from exc
+        except FoundryRealtimeError:
+            raise
+        except Exception as exc:
+            raise FoundryRealtimeError(
+                "Foundry follow-up intent connection ended unexpectedly."
+            ) from exc
+
+        if not received_done:
+            raise FoundryRealtimeError(
+                "Foundry connection ended before follow-up intent completed."
+            )
+        if calls == ["jarvis_query"]:
+            return JARVIS_QUERY
+        if calls == ["jarvis_sleep"]:
+            return JARVIS_SLEEP
+        raise FoundryRealtimeError(
+            "Foundry must return exactly one recognized follow-up intent."
+        )
 
     async def audio_chunks(self) -> AsyncIterator[bytes]:
         if self._connection is None:

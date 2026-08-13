@@ -1,10 +1,11 @@
 # Azure streaming backend
 
-This Python 3.11 Azure Function has two anonymous HTTP routes:
+This Python 3.11 Azure Function has three anonymous HTTP routes:
 
 | Route | Purpose |
 |---|---|
 | `GET /api/health` | Function health probe; `?deep=true` also verifies managed identity and the Foundry Realtime handshake |
+| `POST /api/voice/intent` | Authenticate and classify follow-up PCM as the fixed `JARVIS_QUERY` or `JARVIS_SLEEP` action |
 | `POST /api/voice/stream` | Authenticate the fixed Pi UUID, consume 16 kHz PCM, and stream 24 kHz response PCM |
 
 “Anonymous” is the Azure Functions auth level only. The voice route requires
@@ -15,6 +16,11 @@ Request chunks are validated and incrementally resampled from 16 kHz to the
 request-scoped Foundry Realtime session, commits at request EOF, and waits for
 the first valid audio delta before returning `200 audio/pcm`. Later deltas are
 forwarded without buffering the complete response.
+
+The intent route forces one of two structured Foundry function calls. Stop,
+decline, goodbye, and unclear/noise-only follow-ups become `JARVIS_SLEEP`; only
+a clear new request becomes `JARVIS_QUERY`. No transcript or conversation state
+is retained.
 
 Azure authentication uses only the Function system-assigned managed identity:
 

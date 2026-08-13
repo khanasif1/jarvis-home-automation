@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Jarvis streaming voice API
-  version: 2.0.0
+  version: 2.1.0
   description: >
     Turn-based HTTP streaming of raw PCM from one Raspberry Pi to an Azure
     Function and raw PCM response audio back to the Pi.
@@ -100,6 +100,49 @@ paths:
           $ref: "#/components/responses/ServerError"
         "502":
           $ref: "#/components/responses/FoundryError"
+  /api/voice/intent:
+    post:
+      operationId: classifyFollowupIntent
+      summary: Classify follow-up audio as another query or a request to sleep
+      security:
+        - DeviceGuid: []
+      parameters:
+        - $ref: "#/components/parameters/InputSampleRate"
+        - $ref: "#/components/parameters/InputChannels"
+        - $ref: "#/components/parameters/InputSampleWidth"
+      requestBody:
+        required: true
+        content:
+          audio/pcm:
+            schema:
+              type: string
+              format: binary
+              description: >
+                Headerless little-endian PCM16 mono at 16 kHz. The body must
+                contain detected follow-up speech and no more than 960,000 bytes.
+      responses:
+        "200":
+          description: Fixed machine-readable follow-up intent
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowupIntent"
+        "400":
+          $ref: "#/components/responses/InvalidAudio"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/InvalidAudio"
+        "415":
+          $ref: "#/components/responses/InvalidAudio"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "502":
+          $ref: "#/components/responses/FoundryError"
 components:
   securitySchemes:
     DeviceGuid:
@@ -127,6 +170,14 @@ components:
       schema:
         const: "2"
   schemas:
+    FollowupIntent:
+      type: object
+      additionalProperties: false
+      required: [intent]
+      properties:
+        intent:
+          type: string
+          enum: [JARVIS_QUERY, JARVIS_SLEEP]
     Error:
       type: object
       additionalProperties: false

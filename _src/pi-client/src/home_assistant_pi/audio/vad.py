@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from typing import Protocol
@@ -45,12 +46,15 @@ class CommandAudioStream(Iterator[bytes]):
         silence_timeout_seconds: float = 1.2,
         max_command_seconds: float = 30.0,
         pre_roll_seconds: float = 0.3,
+        min_speech_seconds: float = 0.16,
         activity_callback: Callable[[str, dict[str, int | str]], None] | None = None,
     ) -> None:
         if frame_duration_ms not in {10, 20, 30}:
             raise ValueError("WebRTC VAD frames must be 10, 20, or 30 ms.")
         if max_command_seconds > 30.0:
             raise ValueError("Command duration cannot exceed 30 seconds.")
+        if min_speech_seconds <= 0:
+            raise ValueError("Minimum speech duration must be positive.")
         self._chunks = chunks
         self._vad = vad
         self._sample_rate = sample_rate
@@ -64,7 +68,11 @@ class CommandAudioStream(Iterator[bytes]):
         )
         self._max_frames = max(1, int(max_command_seconds * 1000 / frame_duration_ms))
         self._pre_roll_limit = max(0, int(pre_roll_seconds * 1000 / frame_duration_ms))
+        self._min_speech_frames = max(
+            1, int(min_speech_seconds * 1000 / frame_duration_ms)
+        )
         self._pre_roll: deque[bytes] = deque(maxlen=self._pre_roll_limit)
+        self._speech_candidate: deque[bytes] = deque()
         self._pending: deque[bytes] = deque()
         self._listened_frames = 0
         self._captured_frames = 0
@@ -76,6 +84,7 @@ class CommandAudioStream(Iterator[bytes]):
         self._completion_emitted = False
         self._speech_frames = 0
         self.no_speech_detected = False
+        self._no_speech_deadline = time.monotonic() + no_speech_timeout_seconds
 
     def __iter__(self) -> "CommandAudioStream":
         return self
@@ -112,6 +121,13 @@ class CommandAudioStream(Iterator[bytes]):
         else:
             self._emit("capture_ended", **details)
 
+    def _raise_no_speech_timeout(self) -> None:
+        self.no_speech_detected = True
+        self._complete("no_speech_timeout")
+        raise NoSpeechDetected(
+            "No command speech began before the activation timeout."
+        )
+
     def __next__(self) -> bytes:
         if self._pending:
             self._captured_frames += 1
@@ -124,6 +140,11 @@ class CommandAudioStream(Iterator[bytes]):
             raise StopIteration
 
         while True:
+            if (
+                not self._heard_speech
+                and time.monotonic() >= self._no_speech_deadline
+            ):
+                self._raise_no_speech_timeout()
             try:
                 frame = next(self._chunks)
             except StopIteration:
@@ -143,27 +164,31 @@ class CommandAudioStream(Iterator[bytes]):
 
             self._listened_frames += 1
             is_speech = self._vad.is_speech(frame, self._sample_rate)
-            if not self._heard_speech and is_speech:
-                self._heard_speech = True
-                self._speech_frames = 1
-                self._pending.extend(self._pre_roll)
-                self._pending.append(frame)
-                self._command_frames = len(self._pending)
-                self._pre_roll.clear()
-                self._emit(
-                    "speech_started",
-                    offset_ms=(self._listened_frames - 1) * self._frame_duration_ms,
-                )
-                self._captured_frames += 1
-                return self._pending.popleft()
             if not self._heard_speech:
-                self._pre_roll.append(frame)
-                if self._listened_frames >= self._no_speech_frames:
-                    self.no_speech_detected = True
-                    self._complete("no_speech_timeout")
-                    raise NoSpeechDetected(
-                        "No command speech began before the activation timeout."
+                if is_speech:
+                    self._speech_candidate.append(frame)
+                else:
+                    self._speech_candidate.clear()
+                    self._pre_roll.append(frame)
+                if len(self._speech_candidate) >= self._min_speech_frames:
+                    self._heard_speech = True
+                    self._speech_frames = len(self._speech_candidate)
+                    self._pending.extend(self._pre_roll)
+                    self._pending.extend(self._speech_candidate)
+                    self._command_frames = len(self._pending)
+                    self._pre_roll.clear()
+                    self._speech_candidate.clear()
+                    self._emit(
+                        "speech_started",
+                        offset_ms=(
+                            self._listened_frames - self._speech_frames
+                        )
+                        * self._frame_duration_ms,
                     )
+                    self._captured_frames += 1
+                    return self._pending.popleft()
+                if self._listened_frames >= self._no_speech_frames:
+                    self._raise_no_speech_timeout()
                 continue
 
             self._command_frames += 1

@@ -25,3 +25,8 @@ async def health(req: Request) -> JSONResponse:
 @app.route(route="api/voice/stream", methods=[func.HttpMethod.POST])
 async def voice_stream(req: Request) -> StreamingResponse:
     return await routes.voice_stream(req)
+
+
+@app.route(route="api/voice/intent", methods=[func.HttpMethod.POST])
+async def voice_intent(req: Request) -> JSONResponse:
+    return await routes.voice_intent(req)

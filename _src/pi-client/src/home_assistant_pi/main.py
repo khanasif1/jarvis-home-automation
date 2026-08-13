@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .api import ApiClient, ApiError
+from .api import JARVIS_QUERY, JARVIS_SLEEP, ApiClient, ApiError
 from .audio.capture import AudioCapture
 from .audio.playback import AudioPlayback
 from .audio.vad import CommandAudioStream, NoSpeechDetected, VoiceActivityDetector
@@ -158,8 +158,32 @@ class Application:
         finally:
             command.close()
 
-    def _run_query(self, turn_id: str, query_number: int, timeout: float) -> None:
+    def _run_query(self, turn_id: str, query_number: int, timeout: float) -> bool:
         command_chunks = self._capture_command(turn_id, query_number, timeout)
+        if query_number > 1:
+            _log_activity(
+                turn_id,
+                "followup_intent_started",
+                query=query_number,
+            )
+            intent = self.api_client.classify_followup(iter(command_chunks))
+            _log_activity(
+                turn_id,
+                "followup_intent_completed",
+                query=query_number,
+                intent=intent,
+            )
+            if intent == JARVIS_SLEEP:
+                _log_activity(
+                    turn_id,
+                    "query_cancelled",
+                    query=query_number,
+                    reason="user_requested_sleep",
+                )
+                return False
+            if intent != JARVIS_QUERY:
+                raise ApiError("Backend returned an unknown follow-up intent.")
+
         self.state.transition(State.WAITING_FOR_RESPONSE)
         _log_activity(
             turn_id,
@@ -224,6 +248,7 @@ class Application:
                 "query_completed",
                 query=query_number,
             )
+        return True
 
     def run_session(self) -> None:
         turn_id = uuid.uuid4().hex[:12]
@@ -243,7 +268,11 @@ class Application:
                     else self.config.followup_timeout_seconds
                 )
                 try:
-                    self._run_query(turn_id, query_number, timeout)
+                    should_continue = self._run_query(
+                        turn_id,
+                        query_number,
+                        timeout,
+                    )
                 except NoSpeechDetected:
                     close_reason = (
                         "no_initial_query"
@@ -286,6 +315,9 @@ class Application:
                     )
                     break
 
+                if not should_continue:
+                    close_reason = "user_requested_sleep"
+                    break
                 completed_queries += 1
                 self.play_asset(
                     FOLLOWUP_ASSET,

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.5
+
+- Classify every detected follow-up utterance through Foundry as exactly
+  `JARVIS_QUERY` or `JARVIS_SLEEP`.
+- End immediately on “no more queries,” equivalent stop phrases, and
+  unclear/noise-only audio without generating another answer.
+- Require 160 ms of continuous VAD-positive audio before accepting speech and
+  enforce the follow-up timeout against monotonic wall-clock time.
+
 ## 2.0.4
 
 - Pre-warm openWakeWord after startup/reset and migrate the default detection

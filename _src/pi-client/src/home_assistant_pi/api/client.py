@@ -14,6 +14,9 @@ import requests
 from ..audio.vad import NoSpeechDetected
 from ..config import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE, SAMPLE_WIDTH_BYTES
 
+JARVIS_QUERY: Final = "JARVIS_QUERY"
+JARVIS_SLEEP: Final = "JARVIS_SLEEP"
+
 
 class ApiError(RuntimeError):
     def __init__(self, message: str, status_code: int | None = None) -> None:
@@ -109,6 +112,56 @@ class ApiClient:
         except (requests.RequestException, ValueError):
             return False
 
+    def _audio_headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "audio/pcm",
+            "X-Device-Guid": self._device_guid,
+            "X-Audio-Sample-Rate": str(INPUT_SAMPLE_RATE),
+            "X-Audio-Channels": "1",
+            "X-Audio-Sample-Width": str(SAMPLE_WIDTH_BYTES),
+        }
+
+    def classify_followup(self, audio_chunks: Iterator[bytes]) -> str:
+        response: requests.Response | None = None
+        try:
+            response = self._session.post(
+                f"{self.base_url}/voice/intent",
+                data=audio_chunks,
+                headers=self._audio_headers(),
+                timeout=(10, 75),
+                allow_redirects=False,
+            )
+            if response.status_code != 200:
+                raise ApiError(
+                    self._error_message(response),
+                    status_code=response.status_code,
+                )
+            media_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+            if media_type != "application/json":
+                raise ApiError(
+                    "Backend follow-up intent Content-Type is not application/json."
+                )
+            payload: Any = response.json()
+            if not isinstance(payload, dict) or set(payload) != {"intent"}:
+                raise ApiError("Backend follow-up intent response is malformed.")
+            intent = payload["intent"]
+            if not isinstance(intent, str) or intent not in {
+                JARVIS_QUERY,
+                JARVIS_SLEEP,
+            }:
+                raise ApiError("Backend returned an unknown follow-up intent.")
+            return intent
+        except requests.RequestException as exc:
+            raise ApiError(f"Follow-up intent request failed: {exc}") from exc
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ApiError("Backend follow-up intent response is not valid JSON.") from exc
+        finally:
+            close = getattr(audio_chunks, "close", None)
+            if callable(close):
+                close()
+            if response is not None:
+                response.close()
+
     @contextlib.contextmanager
     def voice_response(
         self,
@@ -123,13 +176,7 @@ class ApiClient:
             response = self._session.post(
                 f"{self.base_url}/voice/stream",
                 data=audio_chunks,
-                headers={
-                    "Content-Type": "audio/pcm",
-                    "X-Device-Guid": self._device_guid,
-                    "X-Audio-Sample-Rate": str(INPUT_SAMPLE_RATE),
-                    "X-Audio-Channels": "1",
-                    "X-Audio-Sample-Width": str(SAMPLE_WIDTH_BYTES),
-                },
+                headers=self._audio_headers(),
                 timeout=(10, 75),
                 stream=True,
                 allow_redirects=False,

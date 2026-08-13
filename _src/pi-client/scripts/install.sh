@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.4"
+readonly DEFAULT_VERSION="2.0.5"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly MODEL_DIR="${CONFIG_DIR}/models"
@@ -28,7 +28,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.4)
+  --version VERSION      Release version to install (default: 2.0.5)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 

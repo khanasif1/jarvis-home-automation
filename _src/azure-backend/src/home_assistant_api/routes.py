@@ -6,6 +6,7 @@ import asyncio
 import audioop
 import logging
 from collections.abc import AsyncIterator, Callable
+from typing import Literal
 
 from azurefunctions.extensions.http.fastapi import JSONResponse, Request, StreamingResponse
 
@@ -127,6 +128,8 @@ async def _prepare_stream(
     request: Request,
     config: AppConfig,
     session: FoundryRealtimeSession,
+    *,
+    response_mode: Literal["audio", "followup_intent"] = "audio",
 ) -> None:
     authenticate_device(request.headers.get("x-device-guid"), config.device_guid)
     _validate_audio_headers(request)
@@ -147,7 +150,7 @@ async def _prepare_stream(
     if received == 0:
         raise VoiceRequestError("PCM request body cannot be empty.")
     resampler.finish()
-    await session.commit_and_create_response()
+    await session.commit_and_create_response(response_mode=response_mode)
 
 
 def _response_stream(
@@ -224,3 +227,58 @@ async def voice_stream(
             await _close_session(session)
         logger.exception("Unexpected voice-stream failure")
         return _json_error(500, "internal_error", "The voice request failed.")
+
+
+async def voice_intent(
+    request: Request,
+    *,
+    config_loader: Callable[[], AppConfig] = AppConfig.from_environment,
+    session_factory: Callable[[AppConfig], FoundryRealtimeSession] = FoundryRealtimeSession,
+) -> JSONResponse:
+    session: FoundryRealtimeSession | None = None
+    try:
+        config = config_loader()
+        session = session_factory(config)
+        await _prepare_stream(
+            request,
+            config,
+            session,
+            response_mode="followup_intent",
+        )
+        intent = await session.followup_intent()
+        if not await _close_session(session):
+            return _json_error(
+                502,
+                "foundry_cleanup_error",
+                "The Foundry Realtime session could not be released.",
+            )
+        session = None
+        return JSONResponse(
+            {"intent": intent},
+            headers={"Cache-Control": "no-store"},
+        )
+    except DeviceAuthenticationError as exc:
+        if session is not None:
+            await _close_session(session)
+        return _json_error(401, "unauthorized_device", str(exc))
+    except (ConfigurationError, VoiceRequestError) as exc:
+        if session is not None:
+            await _close_session(session)
+        status = exc.status_code if isinstance(exc, VoiceRequestError) else 500
+        code = "invalid_audio" if status < 500 else "configuration_error"
+        logger.warning("Follow-up intent request rejected: %s", exc)
+        return _json_error(status, code, str(exc))
+    except FoundryRealtimeError as exc:
+        if session is not None:
+            await _close_session(session)
+        logger.exception("Foundry follow-up intent request failed")
+        return _json_error(502, "foundry_error", str(exc))
+    except asyncio.CancelledError:
+        if session is not None:
+            await _close_session(session)
+        raise
+    except Exception:
+        if session is not None:
+            await _close_session(session)
+        logger.exception("Unexpected voice-intent failure")
+        return _json_error(500, "internal_error", "The intent request failed.")

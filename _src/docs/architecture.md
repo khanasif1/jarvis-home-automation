@@ -7,14 +7,17 @@ flowchart LR
     Mic[Pi microphone] --> Wake[openWakeWord<br/>hey/hello jarvis]
     Wake --> Greet[Local greeting]
     Greet --> VAD[WebRTC VAD<br/>20 ms frames]
-    VAD --> Search[Local search acknowledgement]
-    VAD -->|chunked 16 kHz PCM| Fn[Azure Function<br/>HTTP streaming]
+    VAD -->|first query| Search[Local search acknowledgement]
+    VAD -->|follow-up audio| Intent[Foundry intent<br/>JARVIS_QUERY or JARVIS_SLEEP]
+    Intent -->|JARVIS_QUERY| Search
+    Search -->|chunked 16 kHz PCM| Fn[Azure Function<br/>HTTP streaming]
     Fn -->|incremental resample| RT[Microsoft Foundry<br/>GPT Realtime]
     RT -->|24 kHz PCM deltas| Fn
     Fn -->|streamed 24 kHz PCM| Speaker[Pi speaker]
     Speaker --> Follow[Local follow-up prompt]
-    Follow -->|speech within 30 seconds| VAD
-    Follow -->|timeout| Sleep[Local sleep prompt]
+    Follow -->|160 ms speech within 30 seconds| VAD
+    Intent -->|JARVIS_SLEEP| Sleep[Local sleep prompt]
+    Follow -->|30-second silence| Sleep
 ```
 
 The Pi owns only physical audio, wake detection, local session prompts,
@@ -38,8 +41,9 @@ IDLE_WAKEWORD
 
 - `IDLE_WAKEWORD`: one pre-warmed TFLite model consumes 80 ms microphone frames.
 - `ACTIVATED`: play the local spoken greeting.
-- `STREAMING_COMMAND`: apply VAD to 20 ms frames and retain only bounded command
-  audio plus a short pre-roll.
+- `STREAMING_COMMAND`: require 160 ms of continuous VAD-positive input, then
+  retain only bounded command audio plus a short pre-roll. Follow-up audio is
+  classified before an answer is requested.
 - `WAITING_FOR_RESPONSE`: dispatch the chunked request in a worker and play the
   local search acknowledgement.
 - `PLAYING_RESPONSE`: write response chunks directly to PortAudio, ask for
@@ -51,11 +55,13 @@ turn.
 
 ## Turn completion and limits
 
-WebRTC VAD cancels an initial activation if speech does not begin within 3
-seconds and closes a follow-up wait after 30 seconds. The long pre-speech wait
-is not uploaded. After speech starts, 1.2 seconds of silence closes the request.
-Regardless of VAD, 30 seconds (`960,000` input bytes) is a hard command ceiling
-enforced independently on the Pi and Function.
+WebRTC VAD cancels an initial activation if 160 ms of continuous speech does
+not begin within 3 seconds and closes a follow-up wait after 30 seconds. The
+long pre-speech wait is not uploaded. After speech starts, 1.2 seconds of
+silence closes the request. A follow-up classifier maps explicit termination
+and unclear/noise-only input to `JARVIS_SLEEP`; it maps only a clear new request
+to `JARVIS_QUERY`. Regardless of VAD, 30 seconds (`960,000` input bytes) is a
+hard command ceiling enforced independently on the Pi and Function.
 
 Azure Functions supports streamed HTTP bodies and responses but is not a
 full-duplex WebSocket host. The Pi dispatches the bounded in-memory command as a

@@ -17,8 +17,10 @@ Create a simple, low-latency, half-duplex voice assistant for a Raspberry Pi
    using Microsoft Entra authentication.
 4. The Function streams generated PCM audio back to the Pi.
 5. The Pi starts playback as soon as the first response bytes arrive.
-6. The Pi asks for another query, repeats the loop when speech begins, and
-   returns to wake mode after 30 seconds without follow-up speech.
+6. The Pi asks for another query and waits for follow-up speech. Foundry must
+   classify detected audio as exactly `JARVIS_QUERY` or `JARVIS_SLEEP`.
+7. Continue only for a clear `JARVIS_QUERY`. Explicit stop/decline intent,
+   unclear audio, and 30 seconds without speech must return to wake mode.
 
 Do not use push-to-talk. Do not support barge-in while the assistant is
 speaking. Do not store recordings, transcripts, conversations, reminders, or
@@ -82,6 +84,8 @@ for the configured cooldown so the assistant cannot trigger itself.
 - Use WebRTC VAD locally, mode `2` by default.
 - Cancel the turn if no command speech starts within `3.0` seconds.
 - After each answer, wait up to `30.0` seconds for follow-up speech.
+- Require at least `160` ms of continuous VAD-positive audio before accepting a
+  speech start so short noise and speaker artifacts cannot reopen the loop.
 - Do not retain or upload the long pre-speech follow-up silence; keep only a
   short in-memory pre-roll so the first syllable is preserved.
 - Once speech starts, end the request after `1.2` seconds of continuous
@@ -102,6 +106,18 @@ X-Audio-Channels: 1
 X-Audio-Sample-Width: 2
 Transfer-Encoding: chunked
 ```
+
+For detected follow-up speech, first send the same PCM contract to
+`POST /api/voice/intent`. Its only valid `200` body is one of:
+
+```json
+{"intent":"JARVIS_QUERY"}
+{"intent":"JARVIS_SLEEP"}
+```
+
+Call `/api/voice/stream` only after `JARVIS_QUERY`. On `JARVIS_SLEEP`, play the
+local sleep prompt and return to wake mode without a model answer or another
+follow-up prompt.
 
 - Use a generator/iterator as the request body. Dispatch the bounded in-memory
   command after VAD completes, then play the local search acknowledgement while
@@ -148,6 +164,12 @@ Bundle local 24 kHz mono PCM16 prompts and play them in this order:
 4. Before every normal/error/timeout return to wake mode:
    `I am going back to sleep mode. Wake me up if you want to talk again.`
 
+After prompt 3, phrases such as “no,” “no thanks,” “no more queries,” “nothing
+else,” “that's all,” “goodbye,” and semantic equivalents must select
+`JARVIS_SLEEP`. Unclear or noise-only detected audio must also select sleep. A
+clear new request, including one that follows an initial negation, must select
+`JARVIS_QUERY`.
+
 Wake-word inference must remain disabled for the entire multi-query session.
 The assistant does not preserve text, transcripts, or model conversation
 history between query requests.
@@ -162,6 +184,7 @@ mixed with the legacy HTTP model.
 Keep only:
 
 - `GET /api/health` -> `{"status":"ok"}`
+- `POST /api/voice/intent` -> fixed follow-up intent JSON
 - `POST /api/voice/stream` -> streaming PCM request and response
 
 The voice route must:
@@ -192,6 +215,13 @@ The voice route must:
     disconnects, cancellation, or timeouts.
 14. Close the Foundry connection, OpenAI client, and Azure credential in all
     paths.
+
+The intent route must apply the same authentication, PCM validation, streaming
+input, resampling, limits, and cleanup. Force exactly one structured Foundry
+function call: `jarvis_query` for a clear request or `jarvis_sleep` for explicit
+termination, decline, or unclear/noise-only audio. Map that call to exactly
+`JARVIS_QUERY` or `JARVIS_SLEEP`; reject malformed, missing, unknown, or multiple
+calls instead of guessing.
 
 The endpoint is turn-based, not full duplex: the Function processes upload
 chunks before returning the streamed response. Do not claim WebSocket or

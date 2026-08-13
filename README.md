@@ -9,9 +9,12 @@ Realtime in Microsoft Foundry. Storage and Foundry reject key authentication.
 After wake detection, Jarvis greets the user, captures only command speech in
 bounded memory, dispatches it as chunked PCM, and speaks a local search message
 while the backend works. Returned 24 kHz PCM plays incrementally. Jarvis then
-asks for another query and keeps the session open for 30 seconds; a timeout
-plays the sleep message and re-enables wake detection. Audio is never written
-to a temporary WAV file.
+asks for another query and keeps the session open for 30 seconds. Detected
+follow-up speech is classified by Foundry before another answer is requested:
+clear requests continue, while “no,” “no more queries,” “that's all,” “goodbye,”
+and unclear noise return the fixed `JARVIS_SLEEP` action. Genuine silence is
+handled locally after 30 seconds. Both paths play the sleep message and
+re-enable wake detection. Audio is never written to a temporary WAV file.
 
 ## 1. Install application on Pi
 
@@ -23,20 +26,20 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.4.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.5.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.4.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.4/home-assistant-pi-bundle-2.0.4.tar.gz
+  --output home-assistant-pi-bundle-2.0.5.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.5/home-assistant-pi-bundle-2.0.5.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.4/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.5/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.4.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.5.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.4 \
+  --version 2.0.5 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
@@ -50,12 +53,11 @@ To upgrade an existing installation while explicitly selecting desktop user
 `pi`, download/extract the current bundle as above, then run:
 
 ```bash
-sudo ./update.sh --version 2.0.4 --runtime-user pi
+sudo ./update.sh --version 2.0.5 --runtime-user pi
 ```
 
-This preserves the API URL and Device GUID. The 2.0.4 update migrates the old
-default wake threshold from `0.5` to `0.35`, while retaining explicitly
-configured audio devices and custom wake-word model paths.
+This preserves the API URL, Device GUID, audio devices, wake threshold, and
+custom wake-word model path.
 
 ```bash
 sudo systemctl status home-assistant-pi.service --no-pager
@@ -63,7 +65,7 @@ sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
 sudo home-assistant-pi-service doctor
 ```
 
-Version 2.0.4 runs in the invoking desktop user's PipeWire audio session and
+Version 2.0.5 runs in the invoking desktop user's PipeWire audio session and
 automatically selects compatible defaults. Use `--runtime-user USER` when the
 installer is invoked by a different administrator. If it selects the wrong
 hardware, list devices in the service's exact environment and set
@@ -91,10 +93,12 @@ sudo journalctl -u home-assistant-pi.service -n 50 --no-pager -l
 
 Expected service values are `ActiveState=active`, `SubState=running`, and
 `NRestarts=0`. Say **“Hello Jarvis”** once. Jarvis should greet you, acknowledge
-the query while Azure works, play the answer, and ask for another query. Say a
-second query or remain silent for 30 seconds and confirm the sleep message.
+the query while Azure works, play the answer, and ask for another query. Test
+all three follow-up paths: ask a second question, say **“no more queries”**, and
+remain silent for 30 seconds. The latter two must play the sleep message once
+without requesting another answer.
 
-Version 2.0.4 emits one correlated `activity` line at every live input/output
+Version 2.0.5 emits one correlated `activity` line at every live input/output
 stage. To start with an empty view and monitor only new interaction activity:
 
 ```bash

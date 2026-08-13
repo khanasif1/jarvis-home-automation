@@ -8,9 +8,12 @@ The client is deliberately limited to work that must happen near the user:
 3. Keep only command audio plus a short pre-roll in memory, dispatch it to
    `POST /api/voice/stream`, and play the bundled search acknowledgement.
 4. Play returned 24 kHz PCM chunks immediately.
-5. Ask for another query and wait up to 30 seconds. Repeat the request/response
-   loop when speech begins; otherwise play the bundled sleep message.
-6. Wait 750 ms before re-enabling wake detection.
+5. Ask for another query and wait up to 30 seconds. Ignore speech candidates
+   shorter than 160 ms.
+6. Classify detected follow-up audio through `POST /api/voice/intent`. Continue
+   only for `JARVIS_QUERY`; for `JARVIS_SLEEP`, play the sleep message without
+   requesting another answer. True silence also sleeps locally after 30 seconds.
+7. Wait 750 ms before re-enabling wake detection.
 
 The flow is half-duplex: wake-word inference is disabled during upload,
 response generation, and playback. No audio file or application data is stored.
@@ -59,6 +62,11 @@ The bundled session prompts are:
 - “Do you have another query? Please say it now.”
 - “I am going back to sleep mode. Wake me up if you want to talk again.”
 
+After the follow-up prompt, phrases such as “no,” “no thanks,” “no more
+queries,” “that's all,” “goodbye,” and equivalent intent select
+`JARVIS_SLEEP`. Unclear/noise-only audio also selects sleep so it cannot create
+an answer/prompt loop.
+
 ## Commands
 
 ```bash
@@ -73,7 +81,7 @@ The effective configuration command always redacts the Device GUID.
 
 ## Live activity
 
-Release 2.0.4 writes unbuffered, correlated activity events directly to the
+Release 2.0.5 writes unbuffered, correlated activity events directly to the
 systemd journal. Monitor only new input/output activity in real time:
 
 ```bash
@@ -96,14 +104,14 @@ Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.4
+.\packaging\build-release.ps1 -Version 2.0.5
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.4
+./packaging/build-release.sh --version 2.0.5
 ```
 
-The published `home-assistant-pi-bundle-2.0.4.tar.gz` contains one wheel, three
+The published `home-assistant-pi-bundle-2.0.5.tar.gz` contains one wheel, three
 lifecycle scripts, configuration metadata, and an internal wheel checksum. It
 does not contain backend source, tests, recordings, or a virtual environment.
