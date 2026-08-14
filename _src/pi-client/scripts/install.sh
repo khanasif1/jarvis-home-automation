@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.5"
+readonly DEFAULT_VERSION="2.0.6"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly MODEL_DIR="${CONFIG_DIR}/models"
@@ -28,7 +28,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.5)
+  --version VERSION      Release version to install (default: 2.0.6)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 
@@ -160,11 +160,12 @@ if [[ -n "${PREVIOUS_RUNTIME_USER}" && "${PREVIOUS_RUNTIME_USER}" != "${RUNTIME_
   OUTPUT_DEVICE=""
 fi
 
-if [[ "${WAKEWORD_THRESHOLD}" == "0.5" ]]; then
-  echo "Migrating the legacy wake-word threshold from 0.5 to 0.35."
-  WAKEWORD_THRESHOLD="0.35"
+if [[ -z "${WAKEWORD_MODEL_PATH}" ]] && \
+   [[ "${WAKEWORD_THRESHOLD}" == "0.5" || "${WAKEWORD_THRESHOLD}" == "0.35" ]]; then
+  echo "Migrating the built-in wake-word threshold from ${WAKEWORD_THRESHOLD} to 0.25."
+  WAKEWORD_THRESHOLD="0.25"
 fi
-WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.35}"
+WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.25}"
 WAKEWORD_MODEL_PATH="${WAKEWORD_MODEL_PATH:-}"
 VAD_MODE="${VAD_MODE:-2}"
 NO_SPEECH_TIMEOUT_SECONDS="${NO_SPEECH_TIMEOUT_SECONDS:-3.0}"

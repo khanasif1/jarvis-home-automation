@@ -11,8 +11,8 @@ Create a simple, low-latency, half-duplex voice assistant for a Raspberry Pi
 3B:
 
 1. The Pi listens locally for **"hey jarvis"** or **"hello jarvis"**.
-2. After detection, the Pi greets the user, captures the command, dispatches it
-   as raw PCM audio, and plays a local search acknowledgement.
+2. After detection, the Pi says “How can I help?”, captures the command, and
+   dispatches it as raw PCM audio without a local search acknowledgement.
 3. The Azure Function forwards audio to a Microsoft Foundry GPT Realtime deployment
    using Microsoft Entra authentication.
 4. The Function streams generated PCM audio back to the Pi.
@@ -73,7 +73,7 @@ for the configured cooldown so the assistant cannot trigger itself.
 - Use 16 kHz, mono, signed 16-bit little-endian PCM.
 - Feed the wake model efficient 80 ms frames.
 - Pre-warm the model's five initialization frames after startup and reset.
-- Default wake threshold: `0.35`, configurable from `config.env`.
+- Default wake threshold: `0.25`, configurable from `config.env`.
 - Do not include Porcupine, keyboard activation, or push-to-talk fallbacks.
 
 ### 4.2 Command capture and end-of-speech
@@ -120,8 +120,8 @@ local sleep prompt and return to wake mode without a model answer or another
 follow-up prompt.
 
 - Use a generator/iterator as the request body. Dispatch the bounded in-memory
-  command after VAD completes, then play the local search acknowledgement while
-  the blocking HTTP request runs in a worker.
+  command after VAD completes, then wait for response audio without playing a
+  local search acknowledgement.
 - Do not retry a voice request after any body bytes have been sent; replaying
   partial speech can create duplicate answers.
 - Use bounded connect and response timeouts.
@@ -156,15 +156,12 @@ API URL and canonical UUID before starting the service.
 
 Bundle local 24 kHz mono PCM16 prompts and play them in this order:
 
-1. On activation: `I am your AI assistant. How can I help?`
-2. After command capture and backend dispatch:
-   `I will search for your query and get back soon.`
-3. After every successful answer:
-   `Do you have another query? Please say it now.`
-4. Before every normal/error/timeout return to wake mode:
+1. On activation: `How can I help?`
+2. After every successful answer: `Anything else?`
+3. Before every normal/error/timeout return to wake mode:
    `I am going back to sleep mode. Wake me up if you want to talk again.`
 
-After prompt 3, phrases such as “no,” “no thanks,” “no more queries,” “nothing
+After prompt 2, phrases such as “no,” “no thanks,” “no more queries,” “nothing
 else,” “that's all,” “goodbye,” and semantic equivalents must select
 `JARVIS_SLEEP`. Unclear or noise-only detected audio must also select sleep. A
 clear new request, including one that follows an initial negation, must select

@@ -80,7 +80,7 @@ class Config:
     device_guid: str
     input_device: str | None = None
     output_device: str | None = None
-    wakeword_threshold: float = 0.35
+    wakeword_threshold: float = 0.25
     wakeword_model_path: str | None = None
     vad_mode: int = 2
     no_speech_timeout_seconds: float = 3.0
@@ -174,7 +174,7 @@ def load_config(
         device_guid=get("device_guid"),
         input_device=get("input_device") or None,
         output_device=get("output_device") or None,
-        wakeword_threshold=get_float("wakeword_threshold", 0.35),
+        wakeword_threshold=get_float("wakeword_threshold", 0.25),
         wakeword_model_path=get("wakeword_model_path") or None,
         vad_mode=get_int("vad_mode", 2),
         no_speech_timeout_seconds=get_float("no_speech_timeout_seconds", 3.0),

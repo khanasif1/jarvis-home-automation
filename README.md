@@ -6,10 +6,10 @@ activity detection, 16 kHz PCM capture, and 24 kHz PCM playback. An always-ready
 Azure Function receives each query and uses its managed identity to call GPT
 Realtime in Microsoft Foundry. Storage and Foundry reject key authentication.
 
-After wake detection, Jarvis greets the user, captures only command speech in
-bounded memory, dispatches it as chunked PCM, and speaks a local search message
-while the backend works. Returned 24 kHz PCM plays incrementally. Jarvis then
-asks for another query and keeps the session open for 30 seconds. Detected
+After wake detection, Jarvis says “How can I help?”, captures only command
+speech in bounded memory, and dispatches it as chunked PCM. It waits silently
+for returned 24 kHz PCM and plays that audio incrementally. Jarvis then says
+“Anything else?” and keeps the session open for 30 seconds. Detected
 follow-up speech is classified by Foundry before another answer is requested:
 clear requests continue, while “no,” “no more queries,” “that's all,” “goodbye,”
 and unclear noise return the fixed `JARVIS_SLEEP` action. Genuine silence is
@@ -26,20 +26,20 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.5.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.6.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.5.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.5/home-assistant-pi-bundle-2.0.5.tar.gz
+  --output home-assistant-pi-bundle-2.0.6.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.6/home-assistant-pi-bundle-2.0.6.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.5/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.6/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.5.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.6.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.5 \
+  --version 2.0.6 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
@@ -53,11 +53,12 @@ To upgrade an existing installation while explicitly selecting desktop user
 `pi`, download/extract the current bundle as above, then run:
 
 ```bash
-sudo ./update.sh --version 2.0.5 --runtime-user pi
+sudo ./update.sh --version 2.0.6 --runtime-user pi
 ```
 
-This preserves the API URL, Device GUID, audio devices, wake threshold, and
-custom wake-word model path.
+This preserves the API URL, Device GUID, audio devices, and custom wake-word
+model path. Existing built-in defaults of `0.35` or `0.5` migrate to the more
+sensitive `0.25` threshold; a custom model and its threshold are preserved.
 
 ```bash
 sudo systemctl status home-assistant-pi.service --no-pager
@@ -65,7 +66,7 @@ sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
 sudo home-assistant-pi-service doctor
 ```
 
-Version 2.0.5 runs in the invoking desktop user's PipeWire audio session and
+Version 2.0.6 runs in the invoking desktop user's PipeWire audio session and
 automatically selects compatible defaults. Use `--runtime-user USER` when the
 installer is invoked by a different administrator. If it selects the wrong
 hardware, list devices in the service's exact environment and set
@@ -92,13 +93,13 @@ sudo journalctl -u home-assistant-pi.service -n 50 --no-pager -l
 ```
 
 Expected service values are `ActiveState=active`, `SubState=running`, and
-`NRestarts=0`. Say **“Hello Jarvis”** once. Jarvis should greet you, acknowledge
-the query while Azure works, play the answer, and ask for another query. Test
-all three follow-up paths: ask a second question, say **“no more queries”**, and
-remain silent for 30 seconds. The latter two must play the sleep message once
-without requesting another answer.
+`NRestarts=0`. Say **“Hello Jarvis”** once. Jarvis should say **“How can I
+help?”**, wait silently while Azure works, play the answer, and say **“Anything
+else?”** Test all three follow-up paths: ask a second question, say **“no more
+queries”**, and remain silent for 30 seconds. The latter two must play the sleep
+message once without requesting another answer.
 
-Version 2.0.5 emits one correlated `activity` line at every live input/output
+Version 2.0.6 emits one correlated `activity` line at every live input/output
 stage. To start with an empty view and monitor only new interaction activity:
 
 ```bash
@@ -120,14 +121,14 @@ Raw audio, spoken text, the Device GUID, and credentials are never logged.
 Wake settings are in `/etc/home-assistant-pi/config.env`:
 
 ```dotenv
-HAP_WAKEWORD_THRESHOLD=0.35
+HAP_WAKEWORD_THRESHOLD=0.25
 HAP_WAKEWORD_MODEL_PATH=
 ```
 
 The built-in openWakeWord model is trained for **“Hey Jarvis.”** Pre-warming
-plus the `0.35` threshold improves first-attempt **“Hello Jarvis”** detection.
-If your room is noisy, increase the threshold toward `0.5`; if valid wake words
-are still missed, reduce it toward `0.25`, then restart and test:
+plus the `0.25` threshold improves first-attempt **“Hello Jarvis”** detection.
+If your room is noisy and false activations occur, increase the threshold
+toward `0.5`, then restart and test:
 
 ```bash
 sudo nano /etc/home-assistant-pi/config.env

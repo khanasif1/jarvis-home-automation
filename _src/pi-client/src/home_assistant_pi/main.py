@@ -24,15 +24,11 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 SPOKEN_PROMPTS = {
     "greeting": (
         "greeting.wav",
-        "I am your AI assistant. How can I help?",
-    ),
-    "searching": (
-        "searching.wav",
-        "I will search for your query and get back soon.",
+        "How can I help?",
     ),
     "followup": (
         "followup.wav",
-        "Do you have another query? Please say it now.",
+        "Anything else?",
     ),
     "sleep": (
         "sleep.wav",
@@ -40,7 +36,6 @@ SPOKEN_PROMPTS = {
     ),
 }
 GREETING_ASSET = SPOKEN_PROMPTS["greeting"][0]
-SEARCHING_ASSET = SPOKEN_PROMPTS["searching"][0]
 FOLLOWUP_ASSET = SPOKEN_PROMPTS["followup"][0]
 SLEEP_ASSET = SPOKEN_PROMPTS["sleep"][0]
 
@@ -199,11 +194,6 @@ class Application:
                 turn_id,
                 "backend_request_dispatched",
                 query=query_number,
-            )
-            self.play_asset(
-                SEARCHING_ASSET,
-                turn_id=turn_id,
-                query_number=query_number,
             )
             _log_activity(
                 turn_id,

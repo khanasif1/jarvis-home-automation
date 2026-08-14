@@ -4,11 +4,11 @@ The client is deliberately limited to work that must happen near the user:
 
 1. Pre-warm one openWakeWord TFLite model, then listen in 80 ms frames for
    “hey jarvis” or “hello jarvis.”
-2. Greet the user, switch to 20 ms frames, and apply WebRTC VAD.
+2. Say “How can I help?”, switch to 20 ms frames, and apply WebRTC VAD.
 3. Keep only command audio plus a short pre-roll in memory, dispatch it to
-   `POST /api/voice/stream`, and play the bundled search acknowledgement.
+   `POST /api/voice/stream`, and wait silently for the response.
 4. Play returned 24 kHz PCM chunks immediately.
-5. Ask for another query and wait up to 30 seconds. Ignore speech candidates
+5. Say “Anything else?” and wait up to 30 seconds. Ignore speech candidates
    shorter than 160 ms.
 6. Classify detected follow-up audio through `POST /api/voice/intent`. Continue
    only for `JARVIS_QUERY`; for `JARVIS_SLEEP`, play the sleep message without
@@ -27,7 +27,7 @@ HAP_API_BASE_URL=https://YOUR-FUNCTION.azurewebsites.net/api
 HAP_DEVICE_GUID=00000000-0000-4000-8000-000000000000
 HAP_INPUT_DEVICE=
 HAP_OUTPUT_DEVICE=
-HAP_WAKEWORD_THRESHOLD=0.35
+HAP_WAKEWORD_THRESHOLD=0.25
 HAP_WAKEWORD_MODEL_PATH=
 HAP_VAD_MODE=2
 HAP_NO_SPEECH_TIMEOUT_SECONDS=3.0
@@ -46,9 +46,9 @@ selection. The wrapper runs diagnostics as the configured desktop user with
 the same PipeWire environment as the systemd service.
 
 The bundled `hey_jarvis` model is pre-warmed so its first five initialization
-frames cannot swallow the first wake attempt. The lower default threshold also
-improves “hello jarvis” recognition. Tune `HAP_WAKEWORD_THRESHOLD` in the range
-`0.25` to `0.5` for the room and microphone.
+frames cannot swallow the first wake attempt. The `0.25` default improves
+“hello jarvis” recognition. Increase `HAP_WAKEWORD_THRESHOLD` toward `0.5` only
+if background audio causes false activations.
 
 To change the phrase, train/export a custom openWakeWord TFLite model, copy it
 to `/etc/home-assistant-pi/models/`, and set its absolute path in
@@ -57,9 +57,8 @@ uninstalls. Run `sudo home-assistant-pi-service doctor` after restarting.
 
 The bundled session prompts are:
 
-- “I am your AI assistant. How can I help?”
-- “I will search for your query and get back soon.”
-- “Do you have another query? Please say it now.”
+- “How can I help?”
+- “Anything else?”
 - “I am going back to sleep mode. Wake me up if you want to talk again.”
 
 After the follow-up prompt, phrases such as “no,” “no thanks,” “no more
@@ -81,7 +80,7 @@ The effective configuration command always redacts the Device GUID.
 
 ## Live activity
 
-Release 2.0.5 writes unbuffered, correlated activity events directly to the
+Release 2.0.6 writes unbuffered, correlated activity events directly to the
 systemd journal. Monitor only new input/output activity in real time:
 
 ```bash
@@ -104,14 +103,14 @@ Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.5
+.\packaging\build-release.ps1 -Version 2.0.6
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.5
+./packaging/build-release.sh --version 2.0.6
 ```
 
-The published `home-assistant-pi-bundle-2.0.5.tar.gz` contains one wheel, three
+The published `home-assistant-pi-bundle-2.0.6.tar.gz` contains one wheel, three
 lifecycle scripts, configuration metadata, and an internal wheel checksum. It
 does not contain backend source, tests, recordings, or a virtual environment.

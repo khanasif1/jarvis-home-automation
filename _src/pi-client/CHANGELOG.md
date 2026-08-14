@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.6
+
+- Reduce the built-in wake-word threshold to `0.25` and migrate prior built-in
+  defaults so “Hello Jarvis” activates more reliably.
+- Replace the activation speech with “How can I help?” and the successful-answer
+  follow-up with “Anything else?”
+- Remove the spoken search acknowledgement while preserving the current
+  follow-up intent and sleep behavior.
+
 ## 2.0.5
 
 - Classify every detected follow-up utterance through Foundry as exactly

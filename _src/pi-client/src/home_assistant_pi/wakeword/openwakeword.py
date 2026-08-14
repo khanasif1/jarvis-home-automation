@@ -109,7 +109,7 @@ def _load_model_class() -> type[Any]:
 class OpenWakewordDetector(WakewordDetector):
     def __init__(
         self,
-        threshold: float = 0.35,
+        threshold: float = 0.25,
         model_path: str | None = None,
     ) -> None:
         try:
@@ -133,6 +133,11 @@ class OpenWakewordDetector(WakewordDetector):
         self._threshold = threshold
         self._model_name = Path(model_path).stem if model_path else "hey_jarvis"
         self._warm_up()
+        logger.info(
+            "Wake-word listener ready model=%s threshold=%.3f",
+            self._model_name,
+            self._threshold,
+        )
 
     def _warm_up(self) -> None:
         silence = self._numpy.zeros(self.frame_length(), dtype=self._numpy.int16)

@@ -5,16 +5,15 @@
 ```mermaid
 flowchart LR
     Mic[Pi microphone] --> Wake[openWakeWord<br/>hey/hello jarvis]
-    Wake --> Greet[Local greeting]
+    Wake --> Greet[How can I help?]
     Greet --> VAD[WebRTC VAD<br/>20 ms frames]
-    VAD -->|first query| Search[Local search acknowledgement]
+    VAD -->|first query| Fn[Azure Function<br/>HTTP streaming]
     VAD -->|follow-up audio| Intent[Foundry intent<br/>JARVIS_QUERY or JARVIS_SLEEP]
-    Intent -->|JARVIS_QUERY| Search
-    Search -->|chunked 16 kHz PCM| Fn[Azure Function<br/>HTTP streaming]
+    Intent -->|JARVIS_QUERY| Fn
     Fn -->|incremental resample| RT[Microsoft Foundry<br/>GPT Realtime]
     RT -->|24 kHz PCM deltas| Fn
     Fn -->|streamed 24 kHz PCM| Speaker[Pi speaker]
-    Speaker --> Follow[Local follow-up prompt]
+    Speaker --> Follow[Anything else?]
     Follow -->|160 ms speech within 30 seconds| VAD
     Intent -->|JARVIS_SLEEP| Sleep[Local sleep prompt]
     Follow -->|30-second silence| Sleep
@@ -44,8 +43,8 @@ IDLE_WAKEWORD
 - `STREAMING_COMMAND`: require 160 ms of continuous VAD-positive input, then
   retain only bounded command audio plus a short pre-roll. Follow-up audio is
   classified before an answer is requested.
-- `WAITING_FOR_RESPONSE`: dispatch the chunked request in a worker and play the
-  local search acknowledgement.
+- `WAITING_FOR_RESPONSE`: dispatch the chunked request in a worker and wait
+  silently for the first response audio.
 - `PLAYING_RESPONSE`: write response chunks directly to PortAudio, ask for
   another query, and loop when follow-up speech begins.
 - `COOLDOWN`: wait 750 ms to avoid the speaker retriggering the wake word.
@@ -67,8 +66,9 @@ Azure Functions supports streamed HTTP bodies and responses but is not a
 full-duplex WebSocket host. The Pi dispatches the bounded in-memory command as a
 chunked body after local VAD closes it. Foundry input is committed at request
 EOF. Response headers are returned only after the first valid Foundry audio
-delta, then later deltas stream directly to the Pi. The local search prompt
-masks request setup latency without introducing a separate WebSocket gateway.
+delta, then later deltas stream directly to the Pi. Request setup is
+intentionally silent so only the concise activation and follow-up prompts are
+spoken.
 
 ## Audio contract
 
