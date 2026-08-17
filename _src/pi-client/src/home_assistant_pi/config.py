@@ -80,14 +80,14 @@ class Config:
     device_guid: str
     input_device: str | None = None
     output_device: str | None = None
-    wakeword_threshold: float = 0.25
+    wakeword_threshold: float = 0.15
     wakeword_model_path: str | None = None
     vad_mode: int = 2
     no_speech_timeout_seconds: float = 3.0
     followup_timeout_seconds: float = 30.0
     silence_timeout_seconds: float = 1.2
     max_command_seconds: float = 30.0
-    playback_cooldown_seconds: float = 0.75
+    playback_cooldown_seconds: float = 0.0
     log_level: str = "INFO"
     _source_path: Path | None = field(default=None, repr=False, compare=False)
 
@@ -174,14 +174,14 @@ def load_config(
         device_guid=get("device_guid"),
         input_device=get("input_device") or None,
         output_device=get("output_device") or None,
-        wakeword_threshold=get_float("wakeword_threshold", 0.25),
+        wakeword_threshold=get_float("wakeword_threshold", 0.15),
         wakeword_model_path=get("wakeword_model_path") or None,
         vad_mode=get_int("vad_mode", 2),
         no_speech_timeout_seconds=get_float("no_speech_timeout_seconds", 3.0),
         followup_timeout_seconds=get_float("followup_timeout_seconds", 30.0),
         silence_timeout_seconds=get_float("silence_timeout_seconds", 1.2),
         max_command_seconds=get_float("max_command_seconds", 30.0),
-        playback_cooldown_seconds=get_float("playback_cooldown_seconds", 0.75),
+        playback_cooldown_seconds=get_float("playback_cooldown_seconds", 0.0),
         log_level=get("log_level", "INFO").upper(),
         _source_path=path if path.exists() else None,
     )

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-assistant-pi"
-version = "2.0.6"
+version = "2.0.7"
 description = "Low-latency wake-word voice client for Raspberry Pi 3B"
 readme = "README.md"
 requires-python = "==3.11.*"

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.6"
+readonly DEFAULT_VERSION="2.0.7"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly MODEL_DIR="${CONFIG_DIR}/models"
@@ -28,7 +28,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.6)
+  --version VERSION      Release version to install (default: 2.0.7)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 
@@ -161,18 +161,24 @@ if [[ -n "${PREVIOUS_RUNTIME_USER}" && "${PREVIOUS_RUNTIME_USER}" != "${RUNTIME_
 fi
 
 if [[ -z "${WAKEWORD_MODEL_PATH}" ]] && \
-   [[ "${WAKEWORD_THRESHOLD}" == "0.5" || "${WAKEWORD_THRESHOLD}" == "0.35" ]]; then
-  echo "Migrating the built-in wake-word threshold from ${WAKEWORD_THRESHOLD} to 0.25."
-  WAKEWORD_THRESHOLD="0.25"
+   [[ "${WAKEWORD_THRESHOLD}" == "0.5" || \
+      "${WAKEWORD_THRESHOLD}" == "0.35" || \
+      "${WAKEWORD_THRESHOLD}" == "0.25" ]]; then
+  echo "Migrating the built-in wake-word threshold from ${WAKEWORD_THRESHOLD} to 0.15."
+  WAKEWORD_THRESHOLD="0.15"
 fi
-WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.25}"
+if [[ "${PLAYBACK_COOLDOWN_SECONDS}" == "0.75" ]]; then
+  echo "Removing the legacy 0.75-second wake-word re-arm delay."
+  PLAYBACK_COOLDOWN_SECONDS="0.0"
+fi
+WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.15}"
 WAKEWORD_MODEL_PATH="${WAKEWORD_MODEL_PATH:-}"
 VAD_MODE="${VAD_MODE:-2}"
 NO_SPEECH_TIMEOUT_SECONDS="${NO_SPEECH_TIMEOUT_SECONDS:-3.0}"
 FOLLOWUP_TIMEOUT_SECONDS="${FOLLOWUP_TIMEOUT_SECONDS:-30.0}"
 SILENCE_TIMEOUT_SECONDS="${SILENCE_TIMEOUT_SECONDS:-1.2}"
 MAX_COMMAND_SECONDS="${MAX_COMMAND_SECONDS:-30.0}"
-PLAYBACK_COOLDOWN_SECONDS="${PLAYBACK_COOLDOWN_SECONDS:-0.75}"
+PLAYBACK_COOLDOWN_SECONDS="${PLAYBACK_COOLDOWN_SECONDS:-0.0}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 export DEBIAN_FRONTEND=noninteractive

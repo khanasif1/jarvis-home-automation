@@ -104,13 +104,17 @@ class Application:
     def _finish_cooldown(self, turn_id: str) -> None:
         if self.state.state != State.COOLDOWN:
             self.state.transition(State.COOLDOWN)
-        _log_activity(turn_id, "cooldown_started")
-        if self.config.playback_cooldown_seconds:
-            time.sleep(self.config.playback_cooldown_seconds)
-        self.state.transition(State.IDLE_WAKEWORD)
+        _log_activity(
+            turn_id,
+            "cooldown_started",
+            cooldown_ms=int(self.config.playback_cooldown_seconds * 1000),
+        )
         reset = getattr(self.wakeword, "reset", None)
         if callable(reset):
             reset()
+        if self.config.playback_cooldown_seconds:
+            time.sleep(self.config.playback_cooldown_seconds)
+        self.state.transition(State.IDLE_WAKEWORD)
         _log_activity(turn_id, "ready_for_wakeword")
 
     def _capture_command(

@@ -2,8 +2,8 @@
 
 The client is deliberately limited to work that must happen near the user:
 
-1. Pre-warm one openWakeWord TFLite model, then listen in 80 ms frames for
-   “hey jarvis” or “hello jarvis.”
+1. Pre-warm one openWakeWord TFLite model, then listen in 80 ms frames for the
+   single spoken wake term “Jarvis.”
 2. Say “How can I help?”, switch to 20 ms frames, and apply WebRTC VAD.
 3. Keep only command audio plus a short pre-roll in memory, dispatch it to
    `POST /api/voice/stream`, and wait silently for the response.
@@ -13,7 +13,7 @@ The client is deliberately limited to work that must happen near the user:
 6. Classify detected follow-up audio through `POST /api/voice/intent`. Continue
    only for `JARVIS_QUERY`; for `JARVIS_SLEEP`, play the sleep message without
    requesting another answer. True silence also sleeps locally after 30 seconds.
-7. Wait 750 ms before re-enabling wake detection.
+7. Reset and pre-warm the detector, then re-enable wake capture immediately.
 
 The flow is half-duplex: wake-word inference is disabled during upload,
 response generation, and playback. No audio file or application data is stored.
@@ -27,14 +27,14 @@ HAP_API_BASE_URL=https://YOUR-FUNCTION.azurewebsites.net/api
 HAP_DEVICE_GUID=00000000-0000-4000-8000-000000000000
 HAP_INPUT_DEVICE=
 HAP_OUTPUT_DEVICE=
-HAP_WAKEWORD_THRESHOLD=0.25
+HAP_WAKEWORD_THRESHOLD=0.15
 HAP_WAKEWORD_MODEL_PATH=
 HAP_VAD_MODE=2
 HAP_NO_SPEECH_TIMEOUT_SECONDS=3.0
 HAP_FOLLOWUP_TIMEOUT_SECONDS=30.0
 HAP_SILENCE_TIMEOUT_SECONDS=1.2
 HAP_MAX_COMMAND_SECONDS=30.0
-HAP_PLAYBACK_COOLDOWN_SECONDS=0.75
+HAP_PLAYBACK_COOLDOWN_SECONDS=0.0
 HAP_LOG_LEVEL=INFO
 ```
 
@@ -45,10 +45,13 @@ index from `sudo home-assistant-pi-service devices` to override automatic
 selection. The wrapper runs diagnostics as the configured desktop user with
 the same PipeWire environment as the systemd service.
 
-The bundled `hey_jarvis` model is pre-warmed so its first five initialization
-frames cannot swallow the first wake attempt. The `0.25` default improves
-“hello jarvis” recognition. Increase `HAP_WAKEWORD_THRESHOLD` toward `0.5` only
-if background audio causes false activations.
+The bundled `hey_jarvis` model file is calibrated at `0.15` for the spoken term
+“Jarvis” and pre-warmed so its five initialization frames cannot swallow the
+first wake attempt. After every session, reset/warm-up finishes before
+`IDLE_WAKEWORD`, and the zero-second default cooldown avoids discarding an
+immediate wake call. Increase `HAP_WAKEWORD_THRESHOLD` toward `0.5` only if
+background audio causes false activations. Set a small nonzero
+`HAP_PLAYBACK_COOLDOWN_SECONDS` only if speaker echo causes a false wake.
 
 To change the phrase, train/export a custom openWakeWord TFLite model, copy it
 to `/etc/home-assistant-pi/models/`, and set its absolute path in
@@ -80,7 +83,7 @@ The effective configuration command always redacts the Device GUID.
 
 ## Live activity
 
-Release 2.0.6 writes unbuffered, correlated activity events directly to the
+Release 2.0.7 writes unbuffered, correlated activity events directly to the
 systemd journal. Monitor only new input/output activity in real time:
 
 ```bash
@@ -103,14 +106,14 @@ Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.6
+.\packaging\build-release.ps1 -Version 2.0.7
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.6
+./packaging/build-release.sh --version 2.0.7
 ```
 
-The published `home-assistant-pi-bundle-2.0.6.tar.gz` contains one wheel, three
+The published `home-assistant-pi-bundle-2.0.7.tar.gz` contains one wheel, three
 lifecycle scripts, configuration metadata, and an internal wheel checksum. It
 does not contain backend source, tests, recordings, or a virtual environment.

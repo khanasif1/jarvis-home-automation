@@ -10,7 +10,7 @@ partially migrated legacy features.
 Create a simple, low-latency, half-duplex voice assistant for a Raspberry Pi
 3B:
 
-1. The Pi listens locally for **"hey jarvis"** or **"hello jarvis"**.
+1. The Pi listens locally for the single spoken wake term **"Jarvis"**.
 2. After detection, the Pi says “How can I help?”, captures the command, and
    dispatches it as raw PCM audio without a local search acknowledgement.
 3. The Azure Function forwards audio to a Microsoft Foundry GPT Realtime deployment
@@ -68,12 +68,16 @@ for the configured cooldown so the assistant cannot trigger itself.
 ### 4.1 Wake word
 
 - Support only `openWakeWord` using its TFLite/LiteRT inference path.
-- Load only the bundled/pretrained `hey jarvis` model by default, never every
-  model. Permit one operator-supplied custom `.tflite` model path.
+- Load only the bundled `hey_jarvis` model file by default, calibrated to detect
+  the spoken term “Jarvis”; never load every available model. Permit one
+  operator-supplied custom `.tflite` model path.
 - Use 16 kHz, mono, signed 16-bit little-endian PCM.
 - Feed the wake model efficient 80 ms frames.
 - Pre-warm the model's five initialization frames after startup and reset.
-- Default wake threshold: `0.25`, configurable from `config.env`.
+- Default wake threshold: `0.15`, configurable from `config.env`.
+- Reset and pre-warm the detector before returning to `IDLE_WAKEWORD`, then
+  reopen microphone capture immediately after the sleep prompt. The default
+  playback cooldown is `0.0` seconds so an immediate “Jarvis” is not discarded.
 - Do not include Porcupine, keyboard activation, or push-to-talk fallbacks.
 
 ### 4.2 Command capture and end-of-speech

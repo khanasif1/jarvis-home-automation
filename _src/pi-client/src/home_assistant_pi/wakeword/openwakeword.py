@@ -109,7 +109,7 @@ def _load_model_class() -> type[Any]:
 class OpenWakewordDetector(WakewordDetector):
     def __init__(
         self,
-        threshold: float = 0.25,
+        threshold: float = 0.15,
         model_path: str | None = None,
     ) -> None:
         try:

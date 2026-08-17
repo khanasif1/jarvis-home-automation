@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    Mic[Pi microphone] --> Wake[openWakeWord<br/>hey/hello jarvis]
+    Mic[Pi microphone] --> Wake[openWakeWord<br/>Jarvis]
     Wake --> Greet[How can I help?]
     Greet --> VAD[WebRTC VAD<br/>20 ms frames]
     VAD -->|first query| Fn[Azure Function<br/>HTTP streaming]
@@ -17,6 +17,7 @@ flowchart LR
     Follow -->|160 ms speech within 30 seconds| VAD
     Intent -->|JARVIS_SLEEP| Sleep[Local sleep prompt]
     Follow -->|30-second silence| Sleep
+    Sleep -->|reset, pre-warm, immediate capture| Wake
 ```
 
 The Pi owns only physical audio, wake detection, local session prompts,
@@ -47,7 +48,8 @@ IDLE_WAKEWORD
   silently for the first response audio.
 - `PLAYING_RESPONSE`: write response chunks directly to PortAudio, ask for
   another query, and loop when follow-up speech begins.
-- `COOLDOWN`: wait 750 ms to avoid the speaker retriggering the wake word.
+- `COOLDOWN`: reset and pre-warm the detector after the sleep prompt. The
+  default delay is zero, so microphone wake capture reopens immediately.
 
 The design is half-duplex. No barge-in or wake-word inference runs during a
 turn.

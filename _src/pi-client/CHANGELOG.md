@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.7
+
+- Make the advertised wake term the single word “Jarvis” and lower the calibrated
+  built-in threshold from `0.25` to `0.15`.
+- Remove the default 750 ms post-session deaf window so the pre-warmed detector
+  re-arms immediately after the sleep prompt.
+- Migrate prior built-in thresholds and the legacy default cooldown while
+  preserving custom wake models and operator-specific cooldowns.
+
 ## 2.0.6
 
 - Reduce the built-in wake-word threshold to `0.25` and migrate prior built-in

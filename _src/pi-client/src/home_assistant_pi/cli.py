@@ -93,7 +93,7 @@ def _doctor(config_path: Path) -> int:
         from .wakeword import create_detector
 
         detector = create_detector(
-            config.wakeword_threshold if config is not None else 0.25,
+            config.wakeword_threshold if config is not None else 0.15,
             config.wakeword_model_path if config is not None else None,
         )
         detector.close()
