@@ -5,13 +5,21 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import platform
 import sys
 from pathlib import Path
 
+import numpy
+
 from .api import ApiClient
-from .audio.capture import list_input_devices, resolve_input_device
-from .audio.playback import list_output_devices, resolve_output_device
+from .audio.capture import AudioCapture, list_input_devices, resolve_input_device
+from .audio.playback import (
+    AudioPlayback,
+    list_output_devices,
+    resolve_output_device,
+)
+from .audio.wav import PcmAudio
 from .config import ConfigError, check_file_permissions, load_config
 from .main import run_forever
 from .version import get_version
@@ -30,6 +38,16 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("doctor", help="check local configuration and dependencies")
     subparsers.add_parser("devices", help="list PortAudio input and output devices")
     subparsers.add_parser("version", help="print the installed version")
+    audio_test_parser = subparsers.add_parser(
+        "audio-test",
+        help="record, analyze, and play back enhanced microphone audio",
+    )
+    audio_test_parser.add_argument(
+        "--seconds",
+        type=float,
+        default=5.0,
+        help="capture duration from 1 to 30 seconds (default: 5)",
+    )
     config_parser = subparsers.add_parser(
         "print-effective-config",
         help="print configuration with the device GUID redacted",
@@ -100,11 +118,21 @@ def _doctor(config_path: Path) -> int:
         model_name = (
             config.wakeword_model_path
             if config is not None and config.wakeword_model_path
-            else "built-in hey_jarvis"
+            else "built-in Jarvis ensemble"
         )
         checks.append(("wake-word model", True, f"TFLite model loaded: {model_name}"))
     except Exception as exc:
         checks.append(("wake-word model", False, str(exc)))
+    if config is not None and config.audio_enhancement:
+        try:
+            from .audio.enhancement import validate_runtime
+
+            validate_runtime()
+            checks.append(
+                ("microphone enhancement", True, "SpeexDSP noise suppression and AGC")
+            )
+        except Exception as exc:
+            checks.append(("microphone enhancement", False, str(exc)))
     try:
         inputs = list_input_devices()
         outputs = list_output_devices()
@@ -162,6 +190,89 @@ def _doctor(config_path: Path) -> int:
     return 0 if all(item[1] for item in checks) else 1
 
 
+def _resample_pcm16(audio: bytes, source_rate: int, target_rate: int) -> bytes:
+    if source_rate == target_rate or not audio:
+        return audio
+    source = numpy.frombuffer(audio, dtype=numpy.int16)
+    target_length = max(1, round(len(source) * target_rate / source_rate))
+    source_positions = numpy.arange(len(source), dtype=numpy.float64)
+    target_positions = (
+        numpy.arange(target_length, dtype=numpy.float64) * source_rate / target_rate
+    )
+    return numpy.interp(target_positions, source_positions, source).astype(
+        numpy.int16
+    ).tobytes()
+
+
+def _audio_test(config, seconds: float) -> int:
+    if not 1.0 <= seconds <= 30.0:
+        print("--seconds must be between 1 and 30.", file=sys.stderr)
+        return 2
+
+    capture = AudioCapture(
+        device=config.input_device,
+        enable_enhancement=config.audio_enhancement,
+    )
+    stream = capture.stream_chunks(320)
+    frames = math.ceil(seconds * capture.sample_rate / 320)
+    recorded = bytearray()
+    print(
+        f"Recording {seconds:g} seconds. Speak a normal query now...",
+        flush=True,
+    )
+    try:
+        try:
+            for _ in range(frames):
+                recorded.extend(next(stream))
+        finally:
+            try:
+                stream.close()
+            finally:
+                capture.close()
+    except Exception as exc:
+        print(f"Audio test failed: {exc}", file=sys.stderr)
+        return 1
+
+    stats = capture.last_stats
+    if stats is None:
+        print("Audio capture did not produce quality statistics.", file=sys.stderr)
+        return 1
+    print(
+        "Capture quality: "
+        f"raw RMS {stats.raw_rms_dbfs:.1f} dBFS, "
+        f"enhanced RMS {stats.processed_rms_dbfs:.1f} dBFS, "
+        f"peak {stats.peak_dbfs:.1f} dBFS, "
+        f"clipped {stats.clipped_samples}, "
+        f"overflows {stats.input_overflows}, "
+        f"dropped {stats.dropped_frames}"
+    )
+    if stats.raw_rms_dbfs < -50.0:
+        print("WARN microphone level is very quiet; move closer or increase input gain.")
+    if stats.peak_dbfs > -1.0 or stats.clipped_samples:
+        print("WARN microphone audio is clipping; reduce input gain.")
+    if stats.input_overflows or stats.dropped_frames:
+        print("WARN capture lost audio frames; check Pi CPU load and audio configuration.")
+
+    print("Playing the enhanced recording...", flush=True)
+    playback_rate = 24_000
+    try:
+        AudioPlayback(device=config.output_device).play(
+            PcmAudio(
+                frames=_resample_pcm16(
+                    bytes(recorded),
+                    capture.sample_rate,
+                    playback_rate,
+                ),
+                sample_rate=playback_rate,
+            )
+        )
+    except Exception as exc:
+        print(f"Audio playback test failed: {exc}", file=sys.stderr)
+        return 1
+    print("Audio test complete. The playback should sound clear and match your words.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     command = args.command or "run"
@@ -187,6 +298,8 @@ def main(argv: list[str] | None = None) -> int:
             for key, value in values.items():
                 print(f"{key}={value}")
         return 0
+    if command == "audio-test":
+        return _audio_test(config, args.seconds)
 
     _configure_logging(config.log_level)
     run_forever(config)

@@ -98,7 +98,11 @@ class AppConfig:
                 "ASSISTANT_SYSTEM_INSTRUCTIONS",
                 (
                     "You are Jarvis, a concise home voice assistant. Answer clearly "
-                    "in one or two short spoken sentences unless the user asks for detail."
+                    "in one or two short spoken sentences unless the user asks for "
+                    "detail. Listen carefully to the entire request. If an important "
+                    "word, name, number, or intent is unclear, ask the user to repeat "
+                    "it instead of guessing. Never invent an unrelated calculation or "
+                    "answer when the audio is ambiguous."
                 ),
             ).strip(),
             response_timeout_seconds=_positive_float(

@@ -153,9 +153,25 @@ class Application:
             activity_callback=input_activity,
         )
         try:
-            return list(command)
+            chunks = list(command)
         finally:
             command.close()
+            stats = getattr(self.capture, "last_stats", None)
+            if stats is not None:
+                _log_activity(
+                    turn_id,
+                    "capture_quality",
+                    direction="input",
+                    query=query_number,
+                    enhanced=str(stats.enhanced).lower(),
+                    raw_rms_dbfs=f"{stats.raw_rms_dbfs:.1f}",
+                    processed_rms_dbfs=f"{stats.processed_rms_dbfs:.1f}",
+                    peak_dbfs=f"{stats.peak_dbfs:.1f}",
+                    clipped_samples=stats.clipped_samples,
+                    input_overflows=stats.input_overflows,
+                    dropped_frames=stats.dropped_frames,
+                )
+        return chunks
 
     def _run_query(self, turn_id: str, query_number: int, timeout: float) -> bool:
         command_chunks = self._capture_command(turn_id, query_number, timeout)
@@ -338,7 +354,10 @@ def build_application(config: Config) -> Application:
     return Application(
         config=config,
         api_client=ApiClient(config.api_base_url, config.device_guid),
-        capture=AudioCapture(device=config.input_device),
+        capture=AudioCapture(
+            device=config.input_device,
+            enable_enhancement=config.audio_enhancement,
+        ),
         playback=AudioPlayback(device=config.output_device),
         wakeword=create_detector(
             config.wakeword_threshold,
@@ -349,7 +368,10 @@ def build_application(config: Config) -> Application:
 
 
 def _wait_for_wakeword(app: Application) -> bool:
-    stream = app.capture.stream_chunks(app.wakeword.frame_length())
+    stream = app.capture.stream_chunks(
+        app.wakeword.frame_length(),
+        enhance=False,
+    )
     try:
         for chunk in stream:
             if app.wakeword.process(chunk):
@@ -369,5 +391,10 @@ def run_forever(config: Config) -> None:
     except KeyboardInterrupt:
         logger.info("Stopping Jarvis Pi client")
     finally:
-        app.wakeword.close()
-        app.api_client.close()
+        try:
+            app.capture.close()
+        finally:
+            try:
+                app.wakeword.close()
+            finally:
+                app.api_client.close()

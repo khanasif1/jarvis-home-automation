@@ -17,7 +17,7 @@ class _VadEngine(Protocol):
 
 
 class VoiceActivityDetector:
-    def __init__(self, mode: int = 2, engine: _VadEngine | None = None) -> None:
+    def __init__(self, mode: int = 1, engine: _VadEngine | None = None) -> None:
         if mode not in {0, 1, 2, 3}:
             raise ValueError("WebRTC VAD mode must be 0, 1, 2, or 3.")
         if engine is None:
@@ -71,8 +71,17 @@ class CommandAudioStream(Iterator[bytes]):
         self._min_speech_frames = max(
             1, int(min_speech_seconds * 1000 / frame_duration_ms)
         )
+        self._speech_start_grace_frames = max(
+            1,
+            int(0.04 * 1000 / frame_duration_ms),
+        )
+        self._speech_candidate_limit = (
+            self._min_speech_frames + self._speech_start_grace_frames * 2
+        )
         self._pre_roll: deque[bytes] = deque(maxlen=self._pre_roll_limit)
         self._speech_candidate: deque[bytes] = deque()
+        self._speech_candidate_frames = 0
+        self._speech_candidate_silence = 0
         self._pending: deque[bytes] = deque()
         self._listened_frames = 0
         self._captured_frames = 0
@@ -167,17 +176,33 @@ class CommandAudioStream(Iterator[bytes]):
             if not self._heard_speech:
                 if is_speech:
                     self._speech_candidate.append(frame)
+                    self._speech_candidate_frames += 1
+                    self._speech_candidate_silence = 0
+                elif self._speech_candidate:
+                    self._speech_candidate.append(frame)
+                    self._speech_candidate_silence += 1
+                    if (
+                        self._speech_candidate_silence
+                        > self._speech_start_grace_frames
+                        or len(self._speech_candidate)
+                        > self._speech_candidate_limit
+                    ):
+                        self._pre_roll.extend(self._speech_candidate)
+                        self._speech_candidate.clear()
+                        self._speech_candidate_frames = 0
+                        self._speech_candidate_silence = 0
                 else:
-                    self._speech_candidate.clear()
                     self._pre_roll.append(frame)
-                if len(self._speech_candidate) >= self._min_speech_frames:
+                if self._speech_candidate_frames >= self._min_speech_frames:
                     self._heard_speech = True
-                    self._speech_frames = len(self._speech_candidate)
+                    self._speech_frames = self._speech_candidate_frames
                     self._pending.extend(self._pre_roll)
                     self._pending.extend(self._speech_candidate)
                     self._command_frames = len(self._pending)
                     self._pre_roll.clear()
                     self._speech_candidate.clear()
+                    self._speech_candidate_frames = 0
+                    self._speech_candidate_silence = 0
                     self._emit(
                         "speech_started",
                         offset_ms=(

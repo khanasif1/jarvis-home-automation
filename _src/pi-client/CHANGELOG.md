@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.8
+
+- Combine the official wake model with a conservative, checksum-pinned bare
+  “Jarvis” companion model for higher first-call recall without observed false
+  detections in the disposable 216-sample evaluation.
+- Keep one callback-based PortAudio input stream open across wake and command
+  phases, with bounded buffering and explicit overflow/drop quality metrics.
+- Apply native SpeexDSP noise suppression and bounded automatic gain control to
+  command audio while preserving raw wake-model input.
+- Move default WebRTC VAD from mode `2` to `1` and tolerate brief 40 ms gaps
+  during speech-start confirmation without weakening the 160 ms speech minimum.
+- Add the in-memory `audio-test` microphone analysis/playback diagnostic and
+  make the backend request repetition instead of guessing unclear audio.
+
 ## 2.0.7
 
 - Make the advertised wake term the single word “Jarvis” and lower the calibrated

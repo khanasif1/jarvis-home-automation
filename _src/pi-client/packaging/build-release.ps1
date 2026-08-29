@@ -45,6 +45,7 @@ Copy-Item (Join-Path $piClientDir 'scripts\update.sh') $bundleStage
 Copy-Item (Join-Path $piClientDir 'scripts\uninstall.sh') $bundleStage
 Copy-Item (Join-Path $piClientDir '.env.example') (Join-Path $bundleStage 'config.env.example')
 Copy-Item (Join-Path $piClientDir 'requirements-runtime.txt') $bundleStage
+Copy-Item (Join-Path $piClientDir 'THIRD_PARTY_NOTICES.md') $bundleStage
 [IO.File]::WriteAllText((Join-Path $bundleStage 'VERSION'), "$packageVersion`n", [Text.UTF8Encoding]::new($false))
 
 $wheelHash = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
@@ -60,6 +61,7 @@ $manifest = [ordered]@{
         'uninstall.sh',
         'config.env.example',
         'requirements-runtime.txt',
+        'THIRD_PARTY_NOTICES.md',
         'VERSION',
         'release-manifest.json'
     )

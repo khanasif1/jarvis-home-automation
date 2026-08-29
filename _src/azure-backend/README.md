@@ -22,6 +22,10 @@ decline, goodbye, and unclear/noise-only follow-ups become `JARVIS_SLEEP`; only
 a clear new request becomes `JARVIS_QUERY`. No transcript or conversation state
 is retained.
 
+The answer session is also instructed to ask for repetition when an important
+word, name, number, or intent is unclear. It must not guess an unrelated answer
+or calculation from ambiguous audio.
+
 Azure authentication uses only the Function system-assigned managed identity:
 
 - token scope: `https://ai.azure.com/.default`

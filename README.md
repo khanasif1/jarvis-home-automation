@@ -1,10 +1,11 @@
 # Jarvis Home Voice Assistant
 
 Jarvis is a small half-duplex voice assistant for a 64-bit Raspberry Pi 3B. The
-Pi performs local **“Jarvis”** wake detection, WebRTC voice
-activity detection, 16 kHz PCM capture, and 24 kHz PCM playback. An always-ready
-Azure Function receives each query and uses its managed identity to call GPT
-Realtime in Microsoft Foundry. Storage and Foundry reject key authentication.
+Pi performs local **“Jarvis”** wake detection, buffered 16 kHz PCM capture,
+SpeexDSP command enhancement, WebRTC voice activity detection, and 24 kHz PCM
+playback. An always-ready Azure Function receives each query and uses its managed
+identity to call GPT Realtime in Microsoft Foundry. Storage and Foundry reject
+key authentication.
 
 After wake detection, Jarvis says “How can I help?”, captures only command
 speech in bounded memory, and dispatches it as chunked PCM. It waits silently
@@ -26,40 +27,41 @@ section 3.
 ```bash
 mkdir -p ~/home-assistant-install
 cd ~/home-assistant-install
-rm -f home-assistant-pi-bundle-2.0.7.tar.gz SHA256SUMS
+rm -f home-assistant-pi-bundle-2.0.8.tar.gz SHA256SUMS
 
 curl --fail --location \
-  --output home-assistant-pi-bundle-2.0.7.tar.gz \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.7/home-assistant-pi-bundle-2.0.7.tar.gz
+  --output home-assistant-pi-bundle-2.0.8.tar.gz \
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.8/home-assistant-pi-bundle-2.0.8.tar.gz
 curl --fail --location \
   --output SHA256SUMS \
-  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.7/SHA256SUMS
+  https://github.com/khanasif1/jarvis-home-automation/releases/download/pi-v2.0.8/SHA256SUMS
 
 sha256sum --check SHA256SUMS --ignore-missing
-tar -xzf home-assistant-pi-bundle-2.0.7.tar.gz
+tar -xzf home-assistant-pi-bundle-2.0.8.tar.gz
 
 sudo ./install.sh \
-  --version 2.0.7 \
+  --version 2.0.8 \
   --api-url "https://YOUR-FUNCTION.azurewebsites.net/api" \
   --device-guid "YOUR-DEVICE-GUID"
 ```
 
 The idempotent installer verifies the wheel, installs system/Python
-dependencies, downloads only the “hey jarvis” TFLite model files, writes a
-root-readable configuration, and starts `home-assistant-pi.service`. Rerun the
-same command to repair or update the installation.
+dependencies, downloads and verifies the two-model “Jarvis” TFLite ensemble,
+writes a root-readable configuration, and starts `home-assistant-pi.service`.
+Rerun the same command to repair or update the installation.
 
 To upgrade an existing installation while explicitly selecting desktop user
 `pi`, download/extract the current bundle as above, then run:
 
 ```bash
-sudo ./update.sh --version 2.0.7 --runtime-user pi
+sudo ./update.sh --version 2.0.8 --runtime-user pi
 ```
 
 This preserves the API URL, Device GUID, audio devices, and custom wake-word
 model path. Existing built-in thresholds of `0.25`, `0.35`, or `0.5` migrate to
-the calibrated `0.15` threshold, and the former default `0.75`-second cooldown
-migrates to `0.0`; a custom model, its threshold, and non-default cooldowns are
+the calibrated `0.15` threshold, VAD mode `2` migrates to the clearer mode `1`,
+SpeexDSP enhancement is enabled, and the former default `0.75`-second cooldown
+migrates to `0.0`. A custom model, its threshold, and non-default cooldowns are
 preserved.
 
 ```bash
@@ -68,7 +70,7 @@ sudo journalctl -u home-assistant-pi.service -n 100 --no-pager
 sudo home-assistant-pi-service doctor
 ```
 
-Version 2.0.7 runs in the invoking desktop user's PipeWire audio session and
+Version 2.0.8 runs in the invoking desktop user's PipeWire audio session and
 automatically selects compatible defaults. Use `--runtime-user USER` when the
 installer is invoked by a different administrator. If it selects the wrong
 hardware, list devices in the service's exact environment and set
@@ -102,7 +104,7 @@ and remain silent for 30 seconds. The latter two must play the sleep message onc
 without requesting another answer. As soon as that message ends, say **“Jarvis”**
 again; the assistant should wake on that first call.
 
-Version 2.0.7 emits one correlated `activity` line at every live input/output
+Version 2.0.8 emits one correlated `activity` line at every live input/output
 stage. To start with an empty view and monitor only new interaction activity:
 
 ```bash
@@ -116,8 +118,42 @@ sudo journalctl \
 
 The output updates immediately for wake detection, input speech start/end,
 backend response, output playback start/end, completion, cancellation, and
-failure. Each line includes the application timestamp and a `turn=` identifier.
-Raw audio, spoken text, the Device GUID, and credentials are never logged.
+failure. Each completed command also reports safe RMS, peak, clipping, overflow,
+and dropped-frame quality metrics. Each line includes the application timestamp
+and a `turn=` identifier. Raw audio, spoken text, the Device GUID, and credentials
+are never logged.
+
+### Microphone quality test
+
+Release 2.0.8 keeps one callback-based microphone stream open, uses raw frames
+for wake detection, and applies SpeexDSP noise suppression plus bounded
+automatic gain control only to command audio. It also tolerates speech-start
+gaps up to 40 ms so a brief VAD miss does not discard a real query. Test the
+exact service microphone and speaker without creating a recording file:
+
+```bash
+sudo systemctl stop home-assistant-pi.service
+sudo home-assistant-pi-service audio-test --seconds 8
+sudo systemctl start home-assistant-pi.service
+```
+
+Speak a normal query for the full capture. The command prints raw/enhanced RMS,
+peak, clipping, PortAudio overflow, and dropped-frame counts, then plays the
+enhanced audio. Speech should be clear and match the words you said; `overflows`
+and `dropped` should both be `0`. Always run the final `start` command even when
+the test reports a hardware error.
+
+Audio enhancement is configured in `/etc/home-assistant-pi/config.env`:
+
+```dotenv
+HAP_AUDIO_ENHANCEMENT=true
+HAP_VAD_MODE=1
+```
+
+Keep enhancement enabled unless diagnosing a device-specific DSP problem. This
+half-duplex design deliberately does not use acoustic echo cancellation: the
+microphone is not captured while Jarvis is speaking, so there is no synchronized
+speaker-reference stream for safe AEC.
 
 ### Wake-word settings
 
@@ -129,12 +165,13 @@ HAP_WAKEWORD_MODEL_PATH=
 HAP_PLAYBACK_COOLDOWN_SECONDS=0.0
 ```
 
-The bundled openWakeWord model file is based on **“Hey Jarvis,”** but release
-2.0.7 calibrates it for the single spoken term **“Jarvis.”** The detector resets
-and pre-warms before reopening microphone capture, and the zero-second default
-cooldown removes the previous post-conversation deaf window. If your room is
-noisy and false activations occur, increase the threshold toward `0.5`. If your
-speaker causes an echo activation, set a small cooldown such as `0.1`, then
+Release 2.0.8 combines the official **“Hey Jarvis”** model with a conservative
+bare-**“Jarvis”** companion model. Both are reset and pre-warmed before capture,
+and the persistent microphone stream plus zero-second cooldown remove the
+previous reopen and post-conversation deaf windows. The companion is calibrated
+relative to `HAP_WAKEWORD_THRESHOLD`; custom model paths remain single-model.
+If your room causes false activations, increase the threshold toward `0.5`. If
+your speaker causes an echo activation, set a small cooldown such as `0.1`, then
 restart and test:
 
 ```bash

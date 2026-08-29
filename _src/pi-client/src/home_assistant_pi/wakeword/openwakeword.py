@@ -1,4 +1,4 @@
-"""Single-model openWakeWord TFLite detector with a lightweight import path."""
+"""Calibrated openWakeWord TFLite ensemble with a lightweight import path."""
 
 from __future__ import annotations
 
@@ -17,7 +17,11 @@ _FEATURE_MODEL_FILES = {
     "embedding": "embedding_model.tflite",
     "melspectrogram": "melspectrogram.tflite",
 }
-_BUILTIN_MODEL_FILE = "hey_jarvis_v0.1.tflite"
+_BUILTIN_MODEL_FILES = (
+    "hey_jarvis_v0.1.tflite",
+    "jarvis_v2.tflite",
+)
+_COMPANION_THRESHOLD_RATIO = 2.0 / 3.0
 _WARMUP_FRAMES = 5
 
 
@@ -36,7 +40,7 @@ def validate_runtime(model_path: str | None = None) -> None:
     package_dir = _package_directory()
     required_models = list(_FEATURE_MODEL_FILES.values())
     if model_path is None:
-        required_models.append(_BUILTIN_MODEL_FILE)
+        required_models.extend(_BUILTIN_MODEL_FILES)
     missing = [
         name
         for name in required_models
@@ -83,7 +87,8 @@ def _load_model_class() -> type[Any]:
         },
     }
     package.MODELS = {
-        "hey_jarvis": {"model_path": str(model_dir / _BUILTIN_MODEL_FILE)}
+        "hey_jarvis": {"model_path": str(model_dir / _BUILTIN_MODEL_FILES[0])},
+        "jarvis": {"model_path": str(model_dir / _BUILTIN_MODEL_FILES[1])},
     }
     package.model_class_mappings = {}
 
@@ -115,9 +120,16 @@ class OpenWakewordDetector(WakewordDetector):
         try:
             validate_runtime(model_path)
             model_class = _load_model_class()
-            selected_model = model_path or "hey jarvis"
+            if model_path is not None:
+                selected_models = [model_path]
+            else:
+                model_dir = _package_directory() / "resources" / "models"
+                selected_models = [
+                    str(model_dir / name)
+                    for name in _BUILTIN_MODEL_FILES
+                ]
             self._model = model_class(
-                wakeword_models=[selected_model],
+                wakeword_models=selected_models,
                 inference_framework="tflite",
             )
             import numpy
@@ -126,12 +138,17 @@ class OpenWakewordDetector(WakewordDetector):
         except WakewordError:
             raise
         except Exception as exc:
-            description = model_path or "the built-in 'hey jarvis' model"
+            description = model_path or "the built-in Jarvis model ensemble"
             raise WakewordError(
                 f"Could not load {description} as a TFLite wake-word model: {exc}"
             ) from exc
         self._threshold = threshold
-        self._model_name = Path(model_path).stem if model_path else "hey_jarvis"
+        self._uses_builtin_ensemble = model_path is None
+        self._model_name = (
+            Path(model_path).stem
+            if model_path
+            else "hey_jarvis+jarvis"
+        )
         self._warm_up()
         logger.info(
             "Wake-word listener ready model=%s threshold=%.3f",
@@ -161,21 +178,38 @@ class OpenWakewordDetector(WakewordDetector):
             )
         except Exception as exc:
             raise WakewordError(f"Wake-word inference failed: {exc}") from exc
-        highest_score = max((float(score) for score in predictions.values()), default=0.0)
-        detected = highest_score >= self._threshold
+        scored_models = [
+            (
+                str(name),
+                float(score),
+                (
+                    self._threshold * _COMPANION_THRESHOLD_RATIO
+                    if self._uses_builtin_ensemble
+                    and Path(str(name)).stem == "jarvis_v2"
+                    else self._threshold
+                ),
+            )
+            for name, score in predictions.items()
+        ]
+        highest_model, highest_score, effective_threshold = max(
+            scored_models,
+            key=lambda item: item[1] / item[2],
+            default=(self._model_name, 0.0, self._threshold),
+        )
+        detected = highest_score >= effective_threshold
         if detected:
             logger.info(
                 "Wake word detected model=%s score=%.3f threshold=%.3f",
-                self._model_name,
+                highest_model,
                 highest_score,
-                self._threshold,
+                effective_threshold,
             )
         else:
             logger.debug(
                 "Wake word score model=%s score=%.3f threshold=%.3f",
-                self._model_name,
+                highest_model,
                 highest_score,
-                self._threshold,
+                effective_threshold,
             )
         return detected
 

@@ -80,9 +80,10 @@ class Config:
     device_guid: str
     input_device: str | None = None
     output_device: str | None = None
+    audio_enhancement: bool = True
     wakeword_threshold: float = 0.15
     wakeword_model_path: str | None = None
-    vad_mode: int = 2
+    vad_mode: int = 1
     no_speech_timeout_seconds: float = 3.0
     followup_timeout_seconds: float = 30.0
     silence_timeout_seconds: float = 1.2
@@ -169,14 +170,25 @@ def load_config(
         except ValueError as exc:
             raise ConfigError(f"HAP_{name.upper()} must be an integer") from exc
 
+    def get_bool(name: str, default: bool) -> bool:
+        raw = get(name, str(default)).strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        raise ConfigError(
+            f"HAP_{name.upper()} must be true/false, yes/no, on/off, or 1/0"
+        )
+
     config = Config(
         api_base_url=get("api_base_url").rstrip("/"),
         device_guid=get("device_guid"),
         input_device=get("input_device") or None,
         output_device=get("output_device") or None,
+        audio_enhancement=get_bool("audio_enhancement", True),
         wakeword_threshold=get_float("wakeword_threshold", 0.15),
         wakeword_model_path=get("wakeword_model_path") or None,
-        vad_mode=get_int("vad_mode", 2),
+        vad_mode=get_int("vad_mode", 1),
         no_speech_timeout_seconds=get_float("no_speech_timeout_seconds", 3.0),
         followup_timeout_seconds=get_float("followup_timeout_seconds", 30.0),
         silence_timeout_seconds=get_float("silence_timeout_seconds", 1.2),

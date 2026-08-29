@@ -68,9 +68,11 @@ for the configured cooldown so the assistant cannot trigger itself.
 ### 4.1 Wake word
 
 - Support only `openWakeWord` using its TFLite/LiteRT inference path.
-- Load only the bundled `hey_jarvis` model file by default, calibrated to detect
-  the spoken term “Jarvis”; never load every available model. Permit one
-  operator-supplied custom `.tflite` model path.
+- Load only the official `hey_jarvis` model and the checksum-pinned conservative
+  bare-`Jarvis` companion by default; never load every available model. Calibrate
+  their thresholds for the spoken term “Jarvis.” Permit one operator-supplied
+  custom `.tflite` model path, which replaces the ensemble and remains
+  single-model.
 - Use 16 kHz, mono, signed 16-bit little-endian PCM.
 - Feed the wake model efficient 80 ms frames.
 - Pre-warm the model's five initialization frames after startup and reset.
@@ -82,20 +84,30 @@ for the configured cooldown so the assistant cannot trigger itself.
 
 ### 4.2 Command capture and end-of-speech
 
-- Reuse the active microphone stream across wake detection and command capture
-  when practical, avoiding a gap that clips the first command syllable.
+- Keep one callback-based PortAudio microphone stream open across wake detection,
+  command capture, prompts, playback, and sleep re-arm. Queue frames only during
+  active listening so stale prompt audio cannot enter a command.
+- Use raw PCM for wake inference. For commands and follow-ups, apply native
+  SpeexDSP noise suppression and bounded automatic gain control in 20 ms frames.
+- Use a bounded queue and drop its oldest stale frame instead of ever blocking
+  the PortAudio callback. Report overflow/drop and safe RMS/peak/clipping
+  metrics without logging audio content.
 - Stream 20 ms PCM frames.
-- Use WebRTC VAD locally, mode `2` by default.
+- Use WebRTC VAD locally, mode `1` by default.
 - Cancel the turn if no command speech starts within `3.0` seconds.
 - After each answer, wait up to `30.0` seconds for follow-up speech.
-- Require at least `160` ms of continuous VAD-positive audio before accepting a
-  speech start so short noise and speaker artifacts cannot reopen the loop.
+- Require at least `160` ms of VAD-positive audio before accepting a speech
+  start. Tolerate at most `40` ms of intervening VAD-negative audio so one brief
+  classification miss does not discard real speech, while short noise and
+  speaker artifacts still cannot reopen the loop.
 - Do not retain or upload the long pre-speech follow-up silence; keep only a
   short in-memory pre-roll so the first syllable is preserved.
 - Once speech starts, end the request after `1.2` seconds of continuous
   non-speech.
 - Enforce a **30.0-second hard maximum command duration**.
 - Keep all audio in memory. Never create temporary audio files.
+- Do not add acoustic echo cancellation. The half-duplex design has no
+  synchronized speaker-reference stream, so AEC would be unsafe and unnecessary.
 
 ### 4.3 HTTP request and response
 
@@ -142,6 +154,7 @@ Keep only these operator settings:
 - `HAP_DEVICE_GUID`
 - `HAP_INPUT_DEVICE`
 - `HAP_OUTPUT_DEVICE`
+- `HAP_AUDIO_ENHANCEMENT`
 - `HAP_WAKEWORD_THRESHOLD`
 - `HAP_WAKEWORD_MODEL_PATH`
 - `HAP_VAD_MODE`
@@ -216,6 +229,10 @@ The voice route must:
     disconnects, cancellation, or timeouts.
 14. Close the Foundry connection, OpenAI client, and Azure credential in all
     paths.
+
+Configure the answer session to ask the user to repeat any unclear important
+word, name, number, or intent rather than guessing or returning an unrelated
+calculation.
 
 The intent route must apply the same authentication, PCM validation, streaming
 input, resampling, limits, and cleanup. Force exactly one structured Foundry
@@ -335,8 +352,8 @@ Azure uninstall must:
 Pi install/uninstall must:
 
 - Be safe to rerun.
-- Install only production dependencies, the bundled wake-word path, and at most
-  one explicitly configured custom TFLite model.
+- Install only production dependencies, the two-model default wake path, and at
+  most one explicitly configured custom TFLite replacement.
 - Require 64-bit Raspberry Pi OS.
 - Run as the selected non-root desktop user with that user's PipeWire runtime
   environment; retain the runtime user for idempotent updates and enable linger
@@ -351,8 +368,10 @@ Pi install/uninstall must:
   rate-limit later runtime failures so missing hardware cannot loop forever.
 - Emit timestamped, correlated journal activity for wake detection, command
   speech start/end, backend response, playback start/end, success, and failure.
-  Log only event names plus safe byte/duration metadata; never record raw audio,
+  Include safe RMS/peak/clipping/overflow/drop metadata. Never record raw audio,
   prompt/response content, the device GUID, or credentials.
+- Provide an in-memory `audio-test` command that analyzes microphone quality and
+  plays enhanced audio without writing a recording.
 - Preserve configuration unless uninstall uses `--purge-config`.
 - Never depend on repository source after installing a release bundle.
 
@@ -391,6 +410,10 @@ During implementation, create any tests and fixtures needed only under
 - Foundry session configuration and managed-identity token scope.
 - Error/cancellation cleanup.
 - Pi incremental playback and state transitions.
+- Persistent callback capture reuse, bounded queue overflow behavior, SpeexDSP
+  processing, VAD speech-gap tolerance, and in-memory audio diagnostics.
+- Bare-“Jarvis” recall and confusable/unrelated false detections across a
+  representative multi-voice sample set.
 - Bicep build/lint plus explicit checks for `disableLocalAuth: true`,
   `allowSharedKeyAccess: false`, and absence of key settings/resources.
 - Lifecycle dry-run behavior and release contents.
@@ -413,8 +436,8 @@ metadata, temporary environments, recordings, and generated validation files.
 - Build a wheel, source archive, and
   `home-assistant-pi-bundle-<version>.tar.gz`.
 - Bundle only the wheel, runtime dependency metadata, config example,
-  install/update/uninstall scripts, version, and release manifest. Generate the
-  systemd unit during installation.
+  install/update/uninstall scripts, version, third-party model notices, and
+  release manifest. Generate the systemd unit during installation.
 - Generate `SHA256SUMS`.
 - Verify extraction, checksums, exact contents, and executable modes.
 - Publish the Pi release if GitHub credentials are available so README download

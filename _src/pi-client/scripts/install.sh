@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly APP_NAME="home-assistant-pi"
-readonly DEFAULT_VERSION="2.0.7"
+readonly DEFAULT_VERSION="2.0.8"
 readonly INSTALL_ROOT="/opt/${APP_NAME}"
 readonly CONFIG_DIR="/etc/${APP_NAME}"
 readonly MODEL_DIR="${CONFIG_DIR}/models"
@@ -28,7 +28,7 @@ Required on first install:
   --device-guid UUID     Fixed canonical lowercase device UUID
 
 Options:
-  --version VERSION      Release version to install (default: 2.0.7)
+  --version VERSION      Release version to install (default: 2.0.8)
   --runtime-user USER    Desktop user whose PipeWire audio session Jarvis uses
   --help                 Show this help
 
@@ -144,6 +144,7 @@ DEVICE_GUID="${DEVICE_GUID:-$(read_config_value HAP_DEVICE_GUID)}"
 
 INPUT_DEVICE="$(read_config_value HAP_INPUT_DEVICE)"
 OUTPUT_DEVICE="$(read_config_value HAP_OUTPUT_DEVICE)"
+AUDIO_ENHANCEMENT="$(read_config_value HAP_AUDIO_ENHANCEMENT)"
 WAKEWORD_THRESHOLD="$(read_config_value HAP_WAKEWORD_THRESHOLD)"
 WAKEWORD_MODEL_PATH="$(read_config_value HAP_WAKEWORD_MODEL_PATH)"
 VAD_MODE="$(read_config_value HAP_VAD_MODE)"
@@ -171,9 +172,14 @@ if [[ "${PLAYBACK_COOLDOWN_SECONDS}" == "0.75" ]]; then
   echo "Removing the legacy 0.75-second wake-word re-arm delay."
   PLAYBACK_COOLDOWN_SECONDS="0.0"
 fi
+AUDIO_ENHANCEMENT="${AUDIO_ENHANCEMENT:-true}"
 WAKEWORD_THRESHOLD="${WAKEWORD_THRESHOLD:-0.15}"
 WAKEWORD_MODEL_PATH="${WAKEWORD_MODEL_PATH:-}"
-VAD_MODE="${VAD_MODE:-2}"
+if [[ "${VAD_MODE}" == "2" ]]; then
+  echo "Migrating speech detection from aggressive mode 2 to clearer mode 1."
+  VAD_MODE="1"
+fi
+VAD_MODE="${VAD_MODE:-1}"
 NO_SPEECH_TIMEOUT_SECONDS="${NO_SPEECH_TIMEOUT_SECONDS:-3.0}"
 FOLLOWUP_TIMEOUT_SECONDS="${FOLLOWUP_TIMEOUT_SECONDS:-30.0}"
 SILENCE_TIMEOUT_SECONDS="${SILENCE_TIMEOUT_SECONDS:-1.2}"
@@ -186,6 +192,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates \
   libasound2-plugins \
+  libspeexdsp1 \
   libportaudio2 \
   libopenblas0-pthread \
   python3 \
@@ -410,7 +417,7 @@ python3 -m venv --copies "${RELEASE_DIR}/.venv"
   "openwakeword==0.6.0" \
   "${WHEEL_FILE}"
 
-# Fetch and verify only the three TFLite files used at runtime.
+# Fetch and verify only the four TFLite files used at runtime.
 "${RELEASE_DIR}/.venv/bin/python" - <<'PY'
 import hashlib
 import importlib.util
@@ -424,16 +431,24 @@ target = Path(next(iter(spec.submodule_search_locations))) / "resources" / "mode
 target.mkdir(parents=True, exist_ok=True)
 base = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1"
 models = [
-    ("embedding_model.tflite", "c0aea21eb84a4ce90a08c870da41b7a7173b45269e6a3207c71d67c40f3a59d8"),
-    ("melspectrogram.tflite", "96fa0adccb6e8cf95cb14465409a1a2898ee4a96a85bb9ed3c7eb0e68bf163e8"),
-    ("hey_jarvis_v0.1.tflite", "14bff778604985e1b5c19f0f7bbe477a69cf281d8db34b232b3b972411f710e2"),
+    ("embedding_model.tflite", f"{base}/embedding_model.tflite", "c0aea21eb84a4ce90a08c870da41b7a7173b45269e6a3207c71d67c40f3a59d8"),
+    ("melspectrogram.tflite", f"{base}/melspectrogram.tflite", "96fa0adccb6e8cf95cb14465409a1a2898ee4a96a85bb9ed3c7eb0e68bf163e8"),
+    ("hey_jarvis_v0.1.tflite", f"{base}/hey_jarvis_v0.1.tflite", "14bff778604985e1b5c19f0f7bbe477a69cf281d8db34b232b3b972411f710e2"),
+    (
+        "jarvis_v2.tflite",
+        "https://raw.githubusercontent.com/fwartner/"
+        "home-assistant-wakewords-collection/"
+        "8bcd2f20bb7b76c351b2eff871fa1ce873fe9be2/"
+        "en/jarvis/jarvis_v2.tflite",
+        "cb2102fc9a76d4e02a740760d5ba2060978d766869489000b3565c8c4f8493a5",
+    ),
 ]
-for name, expected in models:
+for name, url, expected in models:
     destination = target / name
     if destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest() == expected:
         continue
     temporary = destination.with_suffix(".download")
-    urllib.request.urlretrieve(f"{base}/{name}", temporary)
+    urllib.request.urlretrieve(url, temporary)
     actual = hashlib.sha256(temporary.read_bytes()).hexdigest()
     if actual != expected:
         temporary.unlink(missing_ok=True)
@@ -444,6 +459,10 @@ PY
 "${RELEASE_DIR}/.venv/bin/home-assistant-pi" version | grep -Fx "${VERSION}" >/dev/null
 "${RELEASE_DIR}/.venv/bin/python" -c \
   "from home_assistant_pi.wakeword.openwakeword import validate_runtime; validate_runtime()"
+"${RELEASE_DIR}/.venv/bin/python" -c \
+  "from home_assistant_pi.audio.enhancement import validate_runtime; validate_runtime()"
+install -m 0644 "${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md" \
+  "${RELEASE_DIR}/THIRD_PARTY_NOTICES.md"
 
 install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}" "${MODEL_DIR}"
 umask 0027
@@ -452,6 +471,7 @@ HAP_API_BASE_URL=${API_URL}
 HAP_DEVICE_GUID=${DEVICE_GUID}
 HAP_INPUT_DEVICE=${INPUT_DEVICE}
 HAP_OUTPUT_DEVICE=${OUTPUT_DEVICE}
+HAP_AUDIO_ENHANCEMENT=${AUDIO_ENHANCEMENT}
 HAP_WAKEWORD_THRESHOLD=${WAKEWORD_THRESHOLD}
 HAP_WAKEWORD_MODEL_PATH=${WAKEWORD_MODEL_PATH}
 HAP_VAD_MODE=${VAD_MODE}

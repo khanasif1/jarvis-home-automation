@@ -49,6 +49,7 @@ cp "${WHEEL_FILE}" "${PI_CLIENT_DIR}/scripts/install.sh" \
   "${PI_CLIENT_DIR}/scripts/update.sh" "${PI_CLIENT_DIR}/scripts/uninstall.sh" "${STAGE}/"
 cp "${PI_CLIENT_DIR}/.env.example" "${STAGE}/config.env.example"
 cp "${PI_CLIENT_DIR}/requirements-runtime.txt" "${STAGE}/"
+cp "${PI_CLIENT_DIR}/THIRD_PARTY_NOTICES.md" "${STAGE}/"
 printf '%s\n' "${VERSION}" >"${STAGE}/VERSION"
 WHEEL_NAME="$(basename "${WHEEL_FILE}")"
 WHEEL_HASH="$(sha256sum "${WHEEL_FILE}" | cut -d ' ' -f 1)"
@@ -65,6 +66,7 @@ cat >"${STAGE}/release-manifest.json" <<EOF
     "uninstall.sh",
     "config.env.example",
     "requirements-runtime.txt",
+    "THIRD_PARTY_NOTICES.md",
     "VERSION",
     "release-manifest.json"
   ]

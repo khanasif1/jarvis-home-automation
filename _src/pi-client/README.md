@@ -2,9 +2,10 @@
 
 The client is deliberately limited to work that must happen near the user:
 
-1. Pre-warm one openWakeWord TFLite model, then listen in 80 ms frames for the
-   single spoken wake term “Jarvis.”
-2. Say “How can I help?”, switch to 20 ms frames, and apply WebRTC VAD.
+1. Pre-warm the two-model openWakeWord TFLite ensemble, then listen to raw 80 ms
+   frames for the single spoken wake term “Jarvis.”
+2. Say “How can I help?”, keep the callback microphone stream open, enhance
+   20 ms frames with SpeexDSP, and apply WebRTC VAD.
 3. Keep only command audio plus a short pre-roll in memory, dispatch it to
    `POST /api/voice/stream`, and wait silently for the response.
 4. Play returned 24 kHz PCM chunks immediately.
@@ -17,6 +18,8 @@ The client is deliberately limited to work that must happen near the user:
 
 The flow is half-duplex: wake-word inference is disabled during upload,
 response generation, and playback. No audio file or application data is stored.
+Acoustic echo cancellation is deliberately omitted because half-duplex playback
+does not provide a synchronized speaker-reference stream.
 
 ## Configuration
 
@@ -27,9 +30,10 @@ HAP_API_BASE_URL=https://YOUR-FUNCTION.azurewebsites.net/api
 HAP_DEVICE_GUID=00000000-0000-4000-8000-000000000000
 HAP_INPUT_DEVICE=
 HAP_OUTPUT_DEVICE=
+HAP_AUDIO_ENHANCEMENT=true
 HAP_WAKEWORD_THRESHOLD=0.15
 HAP_WAKEWORD_MODEL_PATH=
-HAP_VAD_MODE=2
+HAP_VAD_MODE=1
 HAP_NO_SPEECH_TIMEOUT_SECONDS=3.0
 HAP_FOLLOWUP_TIMEOUT_SECONDS=30.0
 HAP_SILENCE_TIMEOUT_SECONDS=1.2
@@ -45,13 +49,19 @@ index from `sudo home-assistant-pi-service devices` to override automatic
 selection. The wrapper runs diagnostics as the configured desktop user with
 the same PipeWire environment as the systemd service.
 
-The bundled `hey_jarvis` model file is calibrated at `0.15` for the spoken term
-“Jarvis” and pre-warmed so its five initialization frames cannot swallow the
-first wake attempt. After every session, reset/warm-up finishes before
+The built-in ensemble combines the official `hey_jarvis` model with a
+checksum-pinned bare-`Jarvis` companion. Both are pre-warmed so initialization
+frames cannot swallow the first wake attempt. The input stream remains open
+between listening phases; after every session, reset/warm-up finishes before
 `IDLE_WAKEWORD`, and the zero-second default cooldown avoids discarding an
 immediate wake call. Increase `HAP_WAKEWORD_THRESHOLD` toward `0.5` only if
 background audio causes false activations. Set a small nonzero
 `HAP_PLAYBACK_COOLDOWN_SECONDS` only if speaker echo causes a false wake.
+
+`HAP_AUDIO_ENHANCEMENT=true` enables native SpeexDSP denoising and bounded
+automatic gain control for commands and follow-ups. Wake inference deliberately
+uses raw PCM. VAD mode `1` and a 40 ms candidate-gap tolerance improve speech
+recall while retaining the existing 160 ms minimum needed to reject short noise.
 
 To change the phrase, train/export a custom openWakeWord TFLite model, copy it
 to `/etc/home-assistant-pi/models/`, and set its absolute path in
@@ -75,15 +85,19 @@ an answer/prompt loop.
 home-assistant-pi run
 home-assistant-pi doctor
 home-assistant-pi devices
+home-assistant-pi audio-test --seconds 8
 home-assistant-pi version
 home-assistant-pi print-effective-config
 ```
 
 The effective configuration command always redacts the Device GUID.
+`audio-test` records only in memory, prints raw/enhanced RMS, peak, clipping,
+overflow, and dropped-frame counts, and plays the enhanced recording at 24 kHz.
+Stop the service before running it so the diagnostic can own the microphone.
 
 ## Live activity
 
-Release 2.0.7 writes unbuffered, correlated activity events directly to the
+Release 2.0.8 writes unbuffered, correlated activity events directly to the
 systemd journal. Monitor only new input/output activity in real time:
 
 ```bash
@@ -95,10 +109,10 @@ sudo journalctl \
   grep --line-buffered 'activity'
 ```
 
-Each turn logs wake detection, command speech boundaries, backend response,
-playback boundaries, completion, and failures with timestamps, a safe `turn=`
-identifier, and byte/duration metadata. It never logs raw audio, transcript
-content, the Device GUID, or credentials.
+Each turn logs wake detection, command speech boundaries, capture-quality
+metrics, backend response, playback boundaries, completion, and failures with
+timestamps, a safe `turn=` identifier, and byte/duration metadata. It never logs
+raw audio, transcript content, the Device GUID, or credentials.
 
 ## Release build
 
@@ -106,14 +120,15 @@ Build output is isolated under `_src/.test-artifacts/pi-client-release/`:
 
 ```powershell
 python -m pip install build
-.\packaging\build-release.ps1 -Version 2.0.7
+.\packaging\build-release.ps1 -Version 2.0.8
 ```
 
 ```bash
 python3 -m pip install build
-./packaging/build-release.sh --version 2.0.7
+./packaging/build-release.sh --version 2.0.8
 ```
 
-The published `home-assistant-pi-bundle-2.0.7.tar.gz` contains one wheel, three
-lifecycle scripts, configuration metadata, and an internal wheel checksum. It
-does not contain backend source, tests, recordings, or a virtual environment.
+The published `home-assistant-pi-bundle-2.0.8.tar.gz` contains one wheel, three
+lifecycle scripts, configuration metadata, third-party model notices, and an
+internal wheel checksum. It does not contain backend source, tests, recordings,
+or a virtual environment.
