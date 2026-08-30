@@ -20,7 +20,10 @@ forwarded without buffering the complete response.
 The intent route forces one of two structured Foundry function calls. Stop,
 decline, goodbye, and unclear/noise-only follow-ups become `JARVIS_SLEEP`; only
 a clear new request becomes `JARVIS_QUERY`. No transcript or conversation state
-is retained.
+is retained. Classification uses minimal reasoning with a bounded 256-token
+budget. If Foundry reports an incomplete response, the route accepts a fully
+completed recognized tool call; otherwise it fails closed to `JARVIS_SLEEP`
+instead of returning a transient `502` to the Pi.
 
 The answer session is also instructed to ask for repetition when an important
 word, name, number, or intent is unclear. It must not guess an unrelated answer

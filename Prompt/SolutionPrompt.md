@@ -238,8 +238,11 @@ The intent route must apply the same authentication, PCM validation, streaming
 input, resampling, limits, and cleanup. Force exactly one structured Foundry
 function call: `jarvis_query` for a clear request or `jarvis_sleep` for explicit
 termination, decline, or unclear/noise-only audio. Map that call to exactly
-`JARVIS_QUERY` or `JARVIS_SLEEP`; reject malformed, missing, unknown, or multiple
-calls instead of guessing.
+`JARVIS_QUERY` or `JARVIS_SLEEP`. Use minimal reasoning and enough output tokens
+for the tool call. For a completed response, reject malformed, missing, unknown,
+or multiple calls instead of guessing. For an upstream `incomplete` response,
+accept one fully completed recognized call; if no usable call completed, fail
+closed to `JARVIS_SLEEP` instead of returning a transient error to the Pi.
 
 The endpoint is turn-based, not full duplex: the Function processes upload
 chunks before returning the streamed response. Do not claim WebSocket or

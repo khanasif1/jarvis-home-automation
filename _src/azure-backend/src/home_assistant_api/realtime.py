@@ -20,6 +20,7 @@ FOUNDRY_HANDSHAKE_TIMEOUT_SECONDS = 30.0
 logger = logging.getLogger(__name__)
 JARVIS_QUERY = "JARVIS_QUERY"
 JARVIS_SLEEP = "JARVIS_SLEEP"
+FOLLOWUP_MAX_OUTPUT_TOKENS = 256
 FOLLOWUP_INTENT_INSTRUCTIONS = (
     "Classify the user's follow-up audio by calling exactly one supplied function. "
     "Call jarvis_sleep when the user says they have no more questions, declines "
@@ -208,7 +209,8 @@ class FoundryRealtimeSession:
                         "tools": FOLLOWUP_INTENT_TOOLS,
                         "tool_choice": "required",
                         "parallel_tool_calls": False,
-                        "max_output_tokens": 64,
+                        "reasoning": {"effort": "minimal"},
+                        "max_output_tokens": FOLLOWUP_MAX_OUTPUT_TOKENS,
                     }
                 )
             else:
@@ -224,6 +226,8 @@ class FoundryRealtimeSession:
 
         calls: list[str] = []
         received_done = False
+        terminal_status = ""
+        terminal_reason = ""
         try:
             async with asyncio.timeout(self._config.response_timeout_seconds):
                 async for event in self._connection:
@@ -245,11 +249,12 @@ class FoundryRealtimeSession:
                         message = getattr(error, "message", "Unknown Realtime API error")
                         raise FoundryRealtimeError(str(message))
                     elif event_type == "response.done":
-                        status = getattr(getattr(event, "response", None), "status", "")
-                        if status and status != "completed":
-                            raise FoundryRealtimeError(
-                                f"Foundry response ended with status '{status}'."
-                            )
+                        response = getattr(event, "response", None)
+                        terminal_status = str(getattr(response, "status", "") or "")
+                        status_details = getattr(response, "status_details", None)
+                        terminal_reason = str(
+                            getattr(status_details, "reason", "") or ""
+                        )
                         received_done = True
                         break
         except TimeoutError as exc:
@@ -267,12 +272,41 @@ class FoundryRealtimeSession:
             raise FoundryRealtimeError(
                 "Foundry connection ended before follow-up intent completed."
             )
+        intent: Literal["JARVIS_QUERY", "JARVIS_SLEEP"] | None = None
         if calls == ["jarvis_query"]:
-            return JARVIS_QUERY
-        if calls == ["jarvis_sleep"]:
+            intent = JARVIS_QUERY
+        elif calls == ["jarvis_sleep"]:
+            intent = JARVIS_SLEEP
+
+        if terminal_status in {"", "completed"}:
+            if intent is not None:
+                return intent
+            raise FoundryRealtimeError(
+                "Foundry must return exactly one recognized follow-up intent."
+            )
+
+        status_detail = (
+            f" (reason: {terminal_reason})" if terminal_reason else ""
+        )
+        if terminal_status == "incomplete":
+            if intent is not None:
+                logger.warning(
+                    "Accepting completed follow-up intent from an incomplete "
+                    "Foundry response reason=%s intent=%s",
+                    terminal_reason or "unknown",
+                    intent,
+                )
+                return intent
+            logger.warning(
+                "Foundry follow-up intent was incomplete without a usable tool "
+                "call; defaulting to sleep reason=%s",
+                terminal_reason or "unknown",
+            )
             return JARVIS_SLEEP
+
         raise FoundryRealtimeError(
-            "Foundry must return exactly one recognized follow-up intent."
+            f"Foundry response ended with status '{terminal_status}'"
+            f"{status_detail}."
         )
 
     async def audio_chunks(self) -> AsyncIterator[bytes]:
@@ -303,10 +337,15 @@ class FoundryRealtimeSession:
                         message = getattr(error, "message", "Unknown Realtime API error")
                         raise FoundryRealtimeError(str(message))
                     elif event_type == "response.done":
-                        status = getattr(getattr(event, "response", None), "status", "")
+                        response = getattr(event, "response", None)
+                        status = getattr(response, "status", "")
                         if status and status != "completed":
+                            status_details = getattr(response, "status_details", None)
+                            reason = getattr(status_details, "reason", "")
+                            detail = f" (reason: {reason})" if reason else ""
                             raise FoundryRealtimeError(
-                                f"Foundry response ended with status '{status}'."
+                                f"Foundry response ended with status '{status}'"
+                                f"{detail}."
                             )
                         received_done = True
                         break
